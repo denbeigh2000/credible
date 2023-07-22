@@ -7,6 +7,16 @@ use thiserror::Error;
 mod wrappers;
 pub use wrappers::{GroupWrapper, UserWrapper};
 
+#[cfg(target_os = "macos")]
+mod darwin;
+#[cfg(target_os = "macos")]
+use darwin::*;
+
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(target_os = "linux")]
+use linux::*;
+
 #[derive(Deserialize, Debug, Clone)]
 pub struct Secret {
     pub name: String,
@@ -57,21 +67,6 @@ pub enum MountSecretError {
     AlreadyMounted,
     #[error("failed to create ramfs: {0}")]
     RamfsCreationFailure(std::io::Error),
-}
-// TODO: Mac-specific type
-// #[cfg(target_os = "macos")]
-// fn mount_ramfs(dir: &Path) -> Result<(), std::io::Error> {
-//
-// }
-
-// #[cfg(not(target_os = "macos"))]
-fn mount_ramfs(_dir: &Path) -> Result<(), std::io::Error> {
-    use nix::mount::MsFlags;
-
-    let mut flags = MsFlags::empty();
-    flags.add(MsFlags::
-    unimplemented!();
-    // nix::mount::mount(None, &self.secret_root, "ramfs",
 }
 
 impl SecretManager {
