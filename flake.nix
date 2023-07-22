@@ -24,7 +24,7 @@
 
         # For `nix develop`:
         devShell = pkgs.mkShell {
-          nativeBuildInputs = with pkgs; [ rust-bin.stable.latest.default rust-analyzer ];
+          nativeBuildInputs = with pkgs; [ rust-bin.nightly.latest.default rust-analyzer ];
         };
       }
     );

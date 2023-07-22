@@ -45,7 +45,6 @@ impl FromStr for GroupWrapper {
         }
 
         Err("No matching gid or groupname found")
-
     }
 }
 

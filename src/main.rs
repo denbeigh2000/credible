@@ -1,8 +1,13 @@
-use age_flake_tool::{GroupWrapper, SecretManager, SecretManagerConfig, UserWrapper};
-
 use std::fs;
 use std::path::PathBuf;
 
+use age_flake_tool::{
+    GroupWrapper,
+    MountSecretError,
+    SecretManager,
+    SecretManagerConfig,
+    UserWrapper,
+};
 use clap::{Parser, Subcommand};
 use thiserror::Error;
 
@@ -38,19 +43,23 @@ enum MainError {
     ReadingConfigFile(std::io::Error),
     #[error("invalid config file: {0}")]
     ParsingConfigFile(#[from] serde_json::Error),
+    #[error("mounting secrets: {0}")]
+    MountingSecrets(#[from] MountSecretError),
 }
 
 fn real_main() -> Result<(), MainError> {
     let args = CliParams::try_parse()?;
     let data = fs::read(args.config_file).map_err(MainError::ReadingConfigFile)?;
-    let manager = serde_json::from_slice(&data)?;
+    let config: SecretManagerConfig = serde_json::from_slice(&data)?;
+
+    let manager: SecretManager = config.into();
 
     match args.action {
-        Actions::Mount {} => todo!(),
+        Actions::Mount {} => manager.mount_secrets()?,
         Actions::Edit { secret_name: _ } => todo!(),
-    }
+    };
 
-    // Ok(())
+    Ok(())
 }
 
 fn main() {
