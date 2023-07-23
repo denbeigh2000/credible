@@ -14,9 +14,15 @@
           inherit system;
         };
 
-        naersk' = pkgs.callPackage naersk {};
+        inherit (pkgs) callPackage;
+        inherit (pkgs.stdenvNoCC.hostPlatform) isLinux;
 
-      in rec {
+        naersk' = pkgs.callPackage naersk { };
+
+        linuxOnlyPkgs = with pkgs; [ libudev-zero pkg-config ];
+
+      in
+      rec {
         # For `nix build` & `nix run`:
         defaultPackage = naersk'.buildPackage {
           src = ./.;
@@ -24,7 +30,10 @@
 
         # For `nix develop`:
         devShell = pkgs.mkShell {
-          nativeBuildInputs = with pkgs; [ rust-bin.nightly.latest.default rust-analyzer ];
+          nativeBuildInputs = with pkgs; [
+            rust-bin.nightly.latest.default
+            rust-analyzer
+          ] ++ (if isLinux then linuxOnlyPkgs else []);
         };
       }
     );

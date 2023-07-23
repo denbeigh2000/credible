@@ -65,13 +65,15 @@ impl From<SecretManagerConfig> for SecretManager {
 pub enum MountSecretError {
     #[error("mount point already in use, unmount first")]
     AlreadyMounted,
+    #[error("failed to check if mounted: {0}")]
+    MountCheckFailure(#[from] CheckMountedError),
     #[error("failed to create ramfs: {0}")]
-    RamfsCreationFailure(std::io::Error),
+    RamfsCreationFailure(MountRamfsError),
 }
 
 impl SecretManager {
     pub fn mount_secrets(&self) -> Result<u32, MountSecretError> {
-        if self.secret_root.exists() {
+        if device_mounted(&self.secret_root)? {
             return Err(MountSecretError::AlreadyMounted);
         }
 
