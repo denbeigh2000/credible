@@ -1,10 +1,12 @@
 use std::fs;
 use std::path::PathBuf;
 
+use age_flake_tool::BackingConfig::S3;
 use age_flake_tool::{
     GroupWrapper,
     MountSecretError,
     SecretManager,
+    SecretManagerBuilder,
     SecretManagerConfig,
     UserWrapper,
 };
@@ -47,12 +49,24 @@ enum MainError {
     MountingSecrets(#[from] MountSecretError),
 }
 
-fn real_main() -> Result<(), MainError> {
+async fn real_main() -> Result<(), MainError> {
     let args = CliParams::try_parse()?;
     let data = fs::read(args.config_file).map_err(MainError::ReadingConfigFile)?;
     let config: SecretManagerConfig = serde_json::from_slice(&data)?;
 
-    let manager: SecretManager = config.into();
+    let cfg = match config.backing_config {
+        S3(c) => c,
+        _ => unimplemented!(),
+    };
+
+    let manager = SecretManagerBuilder::default()
+        .set_secret_root(config.secret_root)
+        .set_owner_user(config.owner_user.into())
+        .set_owner_group(config.owner_group.into())
+        .set_secrets(config.secrets)
+        .set_keys(config.keys)
+        .build(cfg)
+        .await;
 
     match args.action {
         Actions::Mount {} => manager.mount_secrets()?,
@@ -62,8 +76,9 @@ fn real_main() -> Result<(), MainError> {
     Ok(())
 }
 
-fn main() {
-    if let Err(e) = real_main() {
+#[tokio::main]
+async fn main() {
+    if let Err(e) = real_main().await {
         eprintln!("error: {e}");
         std::process::exit(1);
     }
