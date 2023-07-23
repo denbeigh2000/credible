@@ -4,10 +4,13 @@ use std::path::PathBuf;
 use nix::unistd::{Group, User};
 use serde::Deserialize;
 use thiserror::Error;
+use tokio::fs;
 
 mod secret;
-use secret::{S3SecretBacking, S3Config};
-pub use secret::{Secret, SecretBackingImpl};
+use secret::{S3Config, S3SecretBacking};
+pub use secret::{Secret, SecretBackingImpl, SecretError};
+
+mod age;
 
 mod wrappers;
 pub use wrappers::{GroupWrapper, UserWrapper};
@@ -47,7 +50,7 @@ pub enum BackingConfig {
 
 pub struct SecretManager<'a, E, I>
 where
-    E: std::fmt::Display,
+    E: SecretError,
     I: SecretBackingImpl<'a>,
 {
     pub secret_root: PathBuf,
@@ -63,9 +66,8 @@ where
 }
 
 #[async_trait::async_trait]
-pub trait IntoSecretBackingImpl<'a>
-{
-    type Error: std::fmt::Display;
+pub trait IntoSecretBackingImpl<'a> {
+    type Error: SecretError;
     type Impl: SecretBackingImpl<'a, Error = Self::Error>;
 
     async fn build(self) -> Self::Impl;
@@ -129,6 +131,7 @@ impl SecretManagerBuilder {
     {
         let backing = imp.build().await;
         SecretManager::new(
+            // TODO: Where is our descryption key???
             self.secret_root.unwrap(),
             self.owner_user.unwrap(),
             self.owner_group.unwrap(),
@@ -141,23 +144,34 @@ impl SecretManagerBuilder {
 
 impl<'a, E, I> SecretManager<'a, E, I>
 where
-    E: std::fmt::Display,
+    E: SecretError,
     I: SecretBackingImpl<'a, Error = E>,
 {
-    pub fn mount_secrets(&self) -> Result<u32, MountSecretError> {
+    pub async fn mount_secrets(&self) -> Result<u32, MountSecretError<E>> {
         if device_mounted(&self.secret_root)? {
             return Err(MountSecretError::AlreadyMounted);
         }
 
+        if !self.secret_root.exists() {
+            tokio::fs::create_dir(self.secret_root).await;
+        }
+        // Set owners/permissions (every time)
+
         mount_ramfs(&self.secret_root).map_err(MountSecretError::RamfsCreationFailure)?;
-        for _secret in self.secrets.iter() {
-            // let encrypted_content = secret.
+        for secret in self.secrets.iter() {
+            let exp_path = self.secret_root.join(secret.name);
+            let encrypted_bytes = self.backing.read(&secret.path).await?;
+            // let file = fs::write(exp_path,
+            // create file, set permission
+            // decrypt secret
+            // write to file
+            // set permission
         }
         Ok(0)
     }
 
     // TODO: Own error type
-    pub fn unmount_secrets(&self) -> Result<(), MountSecretError> {
+    pub fn unmount_secrets(&self) -> Result<(), MountSecretError<E>> {
         Ok(())
     }
 
@@ -184,11 +198,13 @@ where
 }
 
 #[derive(Error, Debug)]
-pub enum MountSecretError {
+pub enum MountSecretError<E: SecretError> {
     #[error("mount point already in use, unmount first")]
     AlreadyMounted,
     #[error("failed to check if mounted: {0}")]
     MountCheckFailure(#[from] CheckMountedError),
     #[error("failed to create ramfs: {0}")]
     RamfsCreationFailure(MountRamfsError),
+    #[error("failed to read from backing store: {0}")]
+    ReadFromStoreFailure(#[from] E),
 }

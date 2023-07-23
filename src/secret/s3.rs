@@ -9,8 +9,8 @@ use aws_sdk_s3::Client;
 use serde::Deserialize;
 use thiserror::Error;
 
+use crate::secret::{SecretBackingImpl, SecretError};
 use crate::IntoSecretBackingImpl;
-use crate::secret::SecretBackingImpl;
 
 #[derive(Deserialize, Debug)]
 pub struct S3Config {
@@ -39,6 +39,8 @@ pub enum S3SecretBackingError {
     #[error("error reading data from s3: {0}")]
     ReadingData(#[from] ByteStreamError),
 }
+
+impl SecretError for S3SecretBackingError {}
 
 #[derive(Clone)]
 pub struct S3SecretBacking {
@@ -70,11 +72,7 @@ impl<'a> SecretBackingImpl<'a> for S3SecretBacking {
         Ok(data.into())
     }
 
-    async fn write(
-        &self,
-        key: &Path,
-        new_encrypted_content: Vec<u8>,
-    ) -> Result<(), Self::Error> {
+    async fn write(&self, key: &Path, new_encrypted_content: Vec<u8>) -> Result<(), Self::Error> {
         let path_str = key.to_str().expect("path not representable as str");
         let body = ByteStream::from(new_encrypted_content);
         self.client

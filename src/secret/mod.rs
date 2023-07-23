@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use serde::Deserialize;
-use thiserror::Error;
 
 mod s3;
 pub use s3::*;
@@ -19,16 +18,12 @@ pub struct Secret {
     pub path: PathBuf,
 }
 
-#[derive(Error, Debug)]
-pub enum ReadError {
-    #[error("error reading from S3: {0}")]
-    S3(S3SecretBackingError),
-}
-
 #[async_trait]
 pub trait SecretBackingImpl<'a> {
-    type Error: Display;
+    type Error: SecretError;
 
     async fn read(&self, p: &Path) -> Result<Vec<u8>, Self::Error>;
     async fn write(&self, p: &Path, new_encrypted_content: Vec<u8>) -> Result<(), Self::Error>;
 }
+
+pub trait SecretError: std::error::Error {}
