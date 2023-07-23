@@ -5,7 +5,6 @@ use age_flake_tool::BackingConfig::S3;
 use age_flake_tool::{
     GroupWrapper,
     MountSecretError,
-    SecretManager,
     SecretManagerBuilder,
     SecretManagerConfig,
     UserWrapper,
@@ -69,7 +68,7 @@ async fn real_main() -> Result<(), MainError> {
         .await;
 
     match args.action {
-        Actions::Mount {} => manager.mount_secrets()?,
+        Actions::Mount {} => manager.mount_secrets().await?,
         Actions::Edit { secret_name: _ } => todo!(),
     };
 

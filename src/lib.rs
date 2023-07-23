@@ -128,7 +128,9 @@ impl SecretManagerBuilder {
         <I as IntoSecretBackingImpl<'a>>::Impl,
     >
     where
-        I: IntoSecretBackingImpl<'a>,
+        I: IntoSecretBackingImpl<'a> + 'static,
+        <I as IntoSecretBackingImpl<'a>>::Error: 'static,
+        <I as IntoSecretBackingImpl<'a>>::Impl: 'static,
     {
         let backing = imp.build().await;
         SecretManager::new(
@@ -145,16 +147,20 @@ impl SecretManagerBuilder {
 
 impl<'a, E, I> SecretManager<'a, E, I>
 where
-    E: SecretError,
+    E: SecretError + 'static + Sized,
     I: SecretBackingImpl<'a, Error = E>,
 {
     async fn write_secret_to_file(
         &self,
         secret: &Secret,
         identities: &[Box<dyn Identity>],
-    ) -> Result<PathBuf, MountSecretError<E>> {
+    ) -> Result<PathBuf, MountSecretError> {
         let exp_path = self.secret_root.join(&secret.name);
-        let encrypted_bytes = self.backing.read(&secret.path).await?;
+        let encrypted_bytes = self
+            .backing
+            .read(&secret.path)
+            .await
+            .map_err(|e| MountSecretError::ReadFromStoreFailure(Box::new(e)))?;
         let mut file = OpenOptions::new()
             .write(true)
             .truncate(true)
@@ -171,12 +177,12 @@ where
             Some(self.owner_user.uid),
             Some(self.owner_group.gid),
         )
-        .map_err(MountSecretError::<E>::PermissionSettingFailure)?;
+        .map_err(MountSecretError::PermissionSettingFailure)?;
 
         Ok(exp_path)
     }
 
-    pub async fn mount_secrets(&self) -> Result<u32, MountSecretError<E>> {
+    pub async fn mount_secrets(&self) -> Result<u32, MountSecretError> {
         if device_mounted(&self.secret_root)? {
             return Err(MountSecretError::AlreadyMounted);
         }
@@ -184,7 +190,7 @@ where
         if !self.secret_root.exists() {
             let _ = fs::create_dir(&self.secret_root)
                 .await
-                .map_err(MountSecretError::<E>::CreatingFilesFailure);
+                .map_err(MountSecretError::CreatingFilesFailure);
         }
 
         mount_persistent_ramfs(&self.secret_root)
@@ -220,15 +226,17 @@ where
 }
 
 #[derive(Error, Debug)]
-pub enum MountSecretError<E: SecretError> {
+pub enum MountSecretError {
     #[error("mount point already in use, unmount first")]
     AlreadyMounted,
     #[error("failed to check if mounted: {0}")]
     MountCheckFailure(#[from] CheckMountedError),
     #[error("failed to create ramfs: {0}")]
     RamfsCreationFailure(MountRamfsError),
+    // NOTE: The type system makes it hard to return a Box<dyn ...Error> trait
+    // other than std::error::Error
     #[error("failed to read from backing store: {0}")]
-    ReadFromStoreFailure(#[from] E),
+    ReadFromStoreFailure(Box<dyn std::error::Error>),
     #[error("failed to decrypt secret: {0}")]
     DecryptingSecretFailure(#[from] age::DecryptionError),
     #[error("failed to set permissions on secret: errno {0}")]
