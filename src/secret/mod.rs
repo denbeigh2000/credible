@@ -20,7 +20,7 @@ pub struct Secret {
 }
 
 #[async_trait]
-pub trait SecretBackingImpl<'a> {
+pub trait SecretBackingImpl {
     type Error: SecretError;
 
     async fn read(&self, p: &Path) -> Result<Vec<u8>, Self::Error>;

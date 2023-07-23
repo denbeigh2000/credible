@@ -18,7 +18,7 @@ pub struct S3Config {
 }
 
 #[async_trait]
-impl<'a> IntoSecretBackingImpl<'a> for S3Config {
+impl IntoSecretBackingImpl for S3Config {
     type Error = S3SecretBackingError;
     type Impl = S3SecretBacking;
 
@@ -55,7 +55,7 @@ impl S3SecretBacking {
 }
 
 #[async_trait]
-impl<'a> SecretBackingImpl<'a> for S3SecretBacking {
+impl SecretBackingImpl for S3SecretBacking {
     type Error = S3SecretBackingError;
 
     async fn read(&self, key: &Path) -> Result<Vec<u8>, Self::Error> {

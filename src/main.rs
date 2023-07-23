@@ -53,6 +53,8 @@ async fn real_main() -> Result<(), MainError> {
     let data = fs::read(args.config_file).map_err(MainError::ReadingConfigFile)?;
     let config: SecretManagerConfig = serde_json::from_slice(&data)?;
 
+    // TODO: Have some better registry/DI-style pattern here for better
+    // extension
     let cfg = match config.backing_config {
         S3(c) => c,
         _ => unimplemented!(),

@@ -50,10 +50,10 @@ pub enum BackingConfig {
     S3(S3Config),
 }
 
-pub struct SecretManager<'a, E, I>
+pub struct SecretManager<E, I>
 where
     E: SecretError,
-    I: SecretBackingImpl<'a>,
+    I: SecretBackingImpl,
 {
     pub secret_root: PathBuf,
     pub owner_user: User,
@@ -64,14 +64,13 @@ where
 
     pub backing: I,
 
-    _data1: PhantomData<&'a ()>,
-    _data2: PhantomData<E>,
+    _data1: PhantomData<E>,
 }
 
 #[async_trait::async_trait]
-pub trait IntoSecretBackingImpl<'a> {
+pub trait IntoSecretBackingImpl {
     type Error: SecretError;
-    type Impl: SecretBackingImpl<'a, Error = Self::Error>;
+    type Impl: SecretBackingImpl<Error = Self::Error>;
 
     async fn build(self) -> Self::Impl;
 }
@@ -129,18 +128,17 @@ impl SecretManagerBuilder {
         }
     }
 
-    pub async fn build<'a, I>(
+    pub async fn build<I>(
         self,
         imp: I,
     ) -> SecretManager<
-        'a,
-        <I as IntoSecretBackingImpl<'a>>::Error,
-        <I as IntoSecretBackingImpl<'a>>::Impl,
+        <I as IntoSecretBackingImpl>::Error,
+        <I as IntoSecretBackingImpl>::Impl,
     >
     where
-        I: IntoSecretBackingImpl<'a> + 'static,
-        <I as IntoSecretBackingImpl<'a>>::Error: 'static,
-        <I as IntoSecretBackingImpl<'a>>::Impl: 'static,
+        I: IntoSecretBackingImpl + 'static,
+        <I as IntoSecretBackingImpl>::Error: 'static,
+        <I as IntoSecretBackingImpl>::Impl: 'static,
     {
         let private_key_paths = self.private_key_paths.unwrap_or_else(|| {
             let home = match std::env::var("HOME") {
@@ -170,10 +168,10 @@ impl SecretManagerBuilder {
     }
 }
 
-impl<'a, E, I> SecretManager<'a, E, I>
+impl<E, I> SecretManager<E, I>
 where
     E: SecretError + 'static + Sized,
-    I: SecretBackingImpl<'a, Error = E>,
+    I: SecretBackingImpl<Error = E>,
 {
     async fn write_secret_to_file(
         &self,
@@ -246,7 +244,6 @@ where
             backing,
 
             _data1: Default::default(),
-            _data2: Default::default(),
         }
     }
 }
