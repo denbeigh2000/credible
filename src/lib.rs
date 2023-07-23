@@ -45,9 +45,8 @@ pub enum BackingConfig {
     S3(S3Config),
 }
 
-pub struct SecretManager<'a, P, E, I>
+pub struct SecretManager<'a, E, I>
 where
-    P: Deserialize<'a>,
     E: std::fmt::Display,
     I: SecretBackingImpl<'a>,
 {
@@ -60,16 +59,14 @@ where
     pub backing: I,
 
     _data1: PhantomData<&'a ()>,
-    _data2: PhantomData<P>,
-    _data3: PhantomData<E>,
+    _data2: PhantomData<E>,
 }
 
 #[async_trait::async_trait]
 pub trait IntoSecretBackingImpl<'a>
 {
-    type Params: Deserialize<'a>;
     type Error: std::fmt::Display;
-    type Impl: SecretBackingImpl<'a, Params = Self::Params, Error = Self::Error>;
+    type Impl: SecretBackingImpl<'a, Error = Self::Error>;
 
     async fn build(self) -> Self::Impl;
 }
@@ -124,7 +121,6 @@ impl SecretManagerBuilder {
         imp: I,
     ) -> SecretManager<
         'a,
-        <I as IntoSecretBackingImpl<'a>>::Params,
         <I as IntoSecretBackingImpl<'a>>::Error,
         <I as IntoSecretBackingImpl<'a>>::Impl,
     >
@@ -143,11 +139,10 @@ impl SecretManagerBuilder {
     }
 }
 
-impl<'a, P, E, I> SecretManager<'a, P, E, I>
+impl<'a, E, I> SecretManager<'a, E, I>
 where
-    P: Deserialize<'a>,
     E: std::fmt::Display,
-    I: SecretBackingImpl<'a, Params = P, Error = E>,
+    I: SecretBackingImpl<'a, Error = E>,
 {
     pub fn mount_secrets(&self) -> Result<u32, MountSecretError> {
         if device_mounted(&self.secret_root)? {
@@ -184,7 +179,6 @@ where
 
             _data1: Default::default(),
             _data2: Default::default(),
-            _data3: Default::default(),
         }
     }
 }

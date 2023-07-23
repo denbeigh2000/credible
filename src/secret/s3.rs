@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use aws_sdk_s3::error::SdkError;
@@ -19,7 +19,6 @@ pub struct S3Config {
 
 #[async_trait]
 impl<'a> IntoSecretBackingImpl<'a> for S3Config {
-    type Params = S3ObjectParams;
     type Error = S3SecretBackingError;
     type Impl = S3SecretBacking;
 
@@ -41,11 +40,6 @@ pub enum S3SecretBackingError {
     ReadingData(#[from] ByteStreamError),
 }
 
-#[derive(Deserialize, Debug)]
-pub struct S3ObjectParams {
-    key: PathBuf,
-}
-
 #[derive(Clone)]
 pub struct S3SecretBacking {
     client: Client,
@@ -60,11 +54,10 @@ impl S3SecretBacking {
 
 #[async_trait]
 impl<'a> SecretBackingImpl<'a> for S3SecretBacking {
-    type Params = S3ObjectParams;
     type Error = S3SecretBackingError;
 
-    async fn read(&self, params: &Self::Params) -> Result<Vec<u8>, Self::Error> {
-        let path_str = params.key.to_str().expect("path not representable as str");
+    async fn read(&self, key: &Path) -> Result<Vec<u8>, Self::Error> {
+        let path_str = key.to_str().expect("path not representable as str");
         let object = self
             .client
             .get_object()
@@ -79,10 +72,10 @@ impl<'a> SecretBackingImpl<'a> for S3SecretBacking {
 
     async fn write(
         &self,
-        params: &Self::Params,
+        key: &Path,
         new_encrypted_content: Vec<u8>,
     ) -> Result<(), Self::Error> {
-        let path_str = params.key.to_str().expect("path not representable as str");
+        let path_str = key.to_str().expect("path not representable as str");
         let body = ByteStream::from(new_encrypted_content);
         self.client
             .put_object()

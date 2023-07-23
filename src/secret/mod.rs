@@ -1,5 +1,5 @@
 use std::fmt::Display;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use serde::Deserialize;
@@ -15,14 +15,8 @@ pub struct Secret {
     pub mount_path: PathBuf,
     pub encryption_keys: Vec<String>,
 
-    pub storage: Params,
-}
-
-impl Secret {
-    pub async fn read(&self) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-
-        unimplemented!()
-    }
+    // TODO: Will this be fine for all providers?
+    pub path: PathBuf,
 }
 
 #[derive(Error, Debug)]
@@ -31,17 +25,10 @@ pub enum ReadError {
     S3(S3SecretBackingError),
 }
 
-#[derive(Deserialize, Debug)]
-#[serde(tag = "type")]
-pub enum Params {
-    S3(S3ObjectParams),
-}
-
 #[async_trait]
 pub trait SecretBackingImpl<'a> {
-    type Params: Deserialize<'a>;
     type Error: Display;
 
-    async fn read(&self, p: &Self::Params) -> Result<Vec<u8>, Self::Error>;
-    async fn write(&self, p: &Self::Params, new_encrypted_content: Vec<u8>) -> Result<(), Self::Error>;
+    async fn read(&self, p: &Path) -> Result<Vec<u8>, Self::Error>;
+    async fn write(&self, p: &Path, new_encrypted_content: Vec<u8>) -> Result<(), Self::Error>;
 }
