@@ -72,11 +72,13 @@ dependencies = [
  "cookie-factory",
  "ctr",
  "curve25519-dalek",
+ "futures",
  "hkdf",
  "hmac",
  "i18n-embed",
  "i18n-embed-fl",
  "lazy_static",
+ "memchr",
  "nom",
  "num-traits",
  "pin-project",
@@ -128,6 +130,7 @@ dependencies = [
  "serde_with",
  "thiserror",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -2780,6 +2783,7 @@ checksum = "806fe8c2c87eccc8b3267cbae29ed3ab2d0bd37fca70ab622e46aaa9375ddb7d"
 dependencies = [
  "bytes",
  "futures-core",
+ "futures-io",
  "futures-sink",
  "pin-project-lite",
  "tokio",

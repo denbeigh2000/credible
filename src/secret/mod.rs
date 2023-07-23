@@ -1,4 +1,3 @@
-use std::fmt::Display;
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
@@ -13,6 +12,8 @@ pub struct Secret {
     pub encrypted_path: PathBuf,
     pub mount_path: PathBuf,
     pub encryption_keys: Vec<String>,
+
+    // TODO: Per-secret user/group/mode override
 
     // TODO: Will this be fine for all providers?
     pub path: PathBuf,

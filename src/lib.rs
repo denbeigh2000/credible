@@ -1,13 +1,14 @@
 use std::marker::PhantomData;
 use std::path::PathBuf;
 
+use ::age::Identity;
 use nix::unistd::{Group, User};
 use serde::Deserialize;
 use thiserror::Error;
-use tokio::fs;
+use tokio::fs::{self, OpenOptions};
 
 mod secret;
-use secret::{S3Config, S3SecretBacking};
+use secret::S3Config;
 pub use secret::{Secret, SecretBackingImpl, SecretError};
 
 mod age;
@@ -147,32 +148,53 @@ where
     E: SecretError,
     I: SecretBackingImpl<'a, Error = E>,
 {
+    async fn write_secret_to_file(
+        &self,
+        secret: &Secret,
+        identities: &[Box<dyn Identity>],
+    ) -> Result<PathBuf, MountSecretError<E>> {
+        let exp_path = self.secret_root.join(&secret.name);
+        let encrypted_bytes = self.backing.read(&secret.path).await?;
+        let mut file = OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .create(true)
+            .mode(0o0600)
+            .open(&exp_path)
+            .await
+            .map_err(MountSecretError::CreatingFilesFailure)?;
+
+        age::decrypt_bytes(&*encrypted_bytes, &mut file, identities).await?;
+        drop(file);
+        nix::unistd::chown(
+            &exp_path,
+            Some(self.owner_user.uid),
+            Some(self.owner_group.gid),
+        )
+        .map_err(MountSecretError::<E>::PermissionSettingFailure)?;
+
+        Ok(exp_path)
+    }
+
     pub async fn mount_secrets(&self) -> Result<u32, MountSecretError<E>> {
         if device_mounted(&self.secret_root)? {
             return Err(MountSecretError::AlreadyMounted);
         }
 
         if !self.secret_root.exists() {
-            tokio::fs::create_dir(self.secret_root).await;
+            let _ = fs::create_dir(&self.secret_root)
+                .await
+                .map_err(MountSecretError::<E>::CreatingFilesFailure);
         }
-        // Set owners/permissions (every time)
 
-        mount_ramfs(&self.secret_root).map_err(MountSecretError::RamfsCreationFailure)?;
+        mount_persistent_ramfs(&self.secret_root)
+            .map_err(MountSecretError::RamfsCreationFailure)?;
+        // TODO: need to pass identity paths in from config
+        let identities = age::get_identities(&[""])?;
         for secret in self.secrets.iter() {
-            let exp_path = self.secret_root.join(secret.name);
-            let encrypted_bytes = self.backing.read(&secret.path).await?;
-            // let file = fs::write(exp_path,
-            // create file, set permission
-            // decrypt secret
-            // write to file
-            // set permission
+            self.write_secret_to_file(secret, &identities).await?;
         }
         Ok(0)
-    }
-
-    // TODO: Own error type
-    pub fn unmount_secrets(&self) -> Result<(), MountSecretError<E>> {
-        Ok(())
     }
 
     pub fn new(
@@ -207,4 +229,10 @@ pub enum MountSecretError<E: SecretError> {
     RamfsCreationFailure(MountRamfsError),
     #[error("failed to read from backing store: {0}")]
     ReadFromStoreFailure(#[from] E),
+    #[error("failed to decrypt secret: {0}")]
+    DecryptingSecretFailure(#[from] age::DecryptionError),
+    #[error("failed to set permissions on secret: errno {0}")]
+    PermissionSettingFailure(nix::errno::Errno),
+    #[error("failed to create file to write decrypted secret: {0}")]
+    CreatingFilesFailure(std::io::Error),
 }

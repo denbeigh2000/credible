@@ -19,7 +19,7 @@ pub fn device_mounted(dir: &Path) -> Result<bool, CheckMountedError> {
 #[error("unable to mount ramfs: {0}")]
 pub struct MountRamfsError(#[from] io::Error);
 
-pub fn mount_ramfs(dir: &Path) -> Result<(), MountRamfsError> {
+pub fn mount_persistent_ramfs(dir: &Path) -> Result<(), MountRamfsError> {
     // NOTE: Not using nix here because it's non-obvious how to pass the
     // default mode to MsFlags
     Command::new("mount")

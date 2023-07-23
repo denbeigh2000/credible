@@ -30,7 +30,7 @@ pub enum MountRamfsError {
     NoDeviceFromHdiutil,
 }
 
-pub fn mount_ramfs(dir: &Path) -> Result<(), MountRamfsError> {
+pub fn mount_persistent_ramfs(dir: &Path) -> Result<(), MountRamfsError> {
     // 512MB for secrets should be enough for everybody...right?
     let ram_device_name = format!("ram://{}", 2048 * 512);
     // TODO: I don't think this handles non-zero error codes?
