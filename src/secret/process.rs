@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::process::ExitStatus;
+use std::process::{ExitStatus, Stdio};
 
 use age::Identity;
 use tokio::fs::OpenOptions;
@@ -157,7 +157,7 @@ where
 
                 decrypt_bytes(&*encrypted_bytes, &mut file, identities).await?;
                 if let Some(path) = maybe_path {
-                    tokio::fs::symlink(&path, &dest_path)
+                    tokio::fs::symlink(&dest_path, &path)
                         .await
                         .map_err(ProcessRunningError::CreatingSymlink)?;
 
@@ -168,7 +168,7 @@ where
     }
 
     let result = cmd
-        .output()
+        .status()
         .await
         .map_err(ProcessRunningError::ForkingProcess)?;
 
@@ -181,7 +181,7 @@ where
         };
     }
 
-    Ok(result.status)
+    Ok(result)
 }
 
 impl From<S3SecretBackingError> for ProcessRunningError {

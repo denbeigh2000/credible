@@ -8,7 +8,7 @@ use age_flake_tool::{
     MountSecretError,
     SecretManagerBuilder,
     SecretManagerConfig,
-    UserWrapper,
+    UserWrapper, ProcessRunningError,
 };
 use clap::{Parser, Subcommand};
 use thiserror::Error;
@@ -41,7 +41,7 @@ enum Actions {
 #[derive(clap::Args, Debug)]
 struct RunCommandArgs {
     cmd: Vec<String>,
-    #[clap(long, short, num_args = 0..)]
+    #[clap(long, short)]
     mount: Vec<ExposedSecretConfig>,
 }
 
@@ -55,6 +55,8 @@ enum MainError {
     ParsingConfigFile(#[from] serde_json::Error),
     #[error("mounting secrets: {0}")]
     MountingSecrets(#[from] MountSecretError),
+    #[error("running subcommand: {0}")]
+    RunningProcess(#[from] ProcessRunningError),
 }
 
 async fn real_main() -> Result<(), MainError> {
@@ -75,13 +77,16 @@ async fn real_main() -> Result<(), MainError> {
         .set_owner_group(config.owner_group.into())
         .set_secrets(config.secrets)
         .set_keys(config.keys)
+        .set_private_key_paths(config.private_key_paths)
         .build(cfg)
         .await;
 
     match args.action {
         Actions::Mount {} => manager.mount_secrets().await?,
         Actions::Edit { secret_name: _ } => todo!(),
-        Actions::RunCommand {..} => todo!(),
+        Actions::RunCommand(args) => {
+            manager.run_command(&args.cmd, &args.mount).await?
+        },
     };
 
     Ok(())

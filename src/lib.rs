@@ -13,8 +13,8 @@ use tokio::fs::{self, OpenOptions};
 mod builder;
 pub use builder::SecretManagerBuilder;
 mod secret;
-use secret::{S3Config, ProcessRunningError, run_process};
-pub use secret::{ExposedSecretConfig, Secret, SecretBackingImpl, SecretError};
+use secret::{S3Config, run_process};
+pub use secret::{ProcessRunningError, ExposedSecretConfig, Secret, SecretBackingImpl, SecretError};
 
 mod age;
 
@@ -145,8 +145,9 @@ where
             None => Err(ProcessRunningError::NoSuchSecret(e.name.clone())),
         }).collect::<Result<Vec<ExposedSecret>, ProcessRunningError>>()?;
         let identities = age::get_identities(&self.private_key_paths)?;
-        run_process(argv, &full_exposures, &identities, &self.backing).await?;
-        unimplemented!()
+        let status = run_process(argv, &full_exposures, &identities, &self.backing).await?;
+
+        Ok(status)
     }
 
 
