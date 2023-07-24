@@ -12,8 +12,6 @@ pub use process::*;
 #[derive(Deserialize, Debug, Clone)]
 pub struct Secret {
     pub name: String,
-    pub encrypted_path: PathBuf,
-    pub mount_path: PathBuf,
     pub encryption_keys: Vec<String>,
 
     // TODO: Per-secret user/group/mode override

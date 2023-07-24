@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::process::{ExitStatus, Stdio};
+use std::process::ExitStatus;
 
 use age::Identity;
 use tokio::fs::OpenOptions;

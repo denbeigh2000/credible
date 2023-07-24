@@ -1,10 +1,11 @@
 use std::collections::HashMap;
-use std::{marker::PhantomData};
-use std::process::ExitStatus;
+use std::marker::PhantomData;
 use std::os::unix::process::ExitStatusExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::ExitStatus;
 
 use ::age::Identity;
+use age::{encrypt_bytes, EncryptionError};
 use nix::unistd::{Group, User};
 use serde::Deserialize;
 use thiserror::Error;
@@ -13,8 +14,14 @@ use tokio::fs::{self, OpenOptions};
 mod builder;
 pub use builder::SecretManagerBuilder;
 mod secret;
-use secret::{S3Config, run_process};
-pub use secret::{ProcessRunningError, ExposedSecretConfig, Secret, SecretBackingImpl, SecretError};
+use secret::{run_process, S3Config};
+pub use secret::{
+    ExposedSecretConfig,
+    ProcessRunningError,
+    Secret,
+    SecretBackingImpl,
+    SecretError,
+};
 
 mod age;
 
@@ -110,6 +117,31 @@ where
         }
     }
 
+    pub async fn create(
+        &self,
+        secret: &Secret,
+        source_file: Option<&Path>,
+    ) -> Result<(), CreateUpdateSecretError> {
+        // TODO: Check to see if this exists?
+        let mut data = match source_file {
+            Some(file) => tokio::fs::File::open(file)
+                .await
+                .map_err(CreateUpdateSecretError::ReadSourceFile)?,
+            None => todo!("Secure tempdir editing"),
+        };
+
+        let mut encrypted: Vec<u8> = Vec::new();
+        encrypt_bytes(&mut data, &mut encrypted, &secret.encryption_keys)
+            .await
+            .map_err(CreateUpdateSecretError::EncryptingSecret)?;
+        self.backing
+            .write(&secret.path, encrypted)
+            .await
+            .map_err(|e| CreateUpdateSecretError::WritingToStore(Box::new(e)))?;
+
+        Ok(())
+    }
+
     pub async fn mount_secrets(&self) -> Result<ExitStatus, MountSecretError> {
         if device_mounted(&self.secret_root)? {
             return Err(MountSecretError::AlreadyMounted);
@@ -131,25 +163,34 @@ where
         Ok(ExitStatus::from_raw(0))
     }
 
-    pub async fn run_command(&self, argv: &[String], exposures: &[ExposedSecretConfig]) -> Result<ExitStatus, ProcessRunningError> {
+    pub async fn run_command(
+        &self,
+        argv: &[String],
+        exposures: &[ExposedSecretConfig],
+    ) -> Result<ExitStatus, ProcessRunningError> {
         let secrets_map = self.secrets.iter().fold(HashMap::new(), |mut acc, x| {
             acc.insert(x.name.clone(), x);
             acc
         });
-        let full_exposures = exposures.iter().map(|e| match secrets_map.get(&e.name) {
-            Some(secret) => {
-                let secret = (*secret).clone();
-                let exposure_type = e.exposure_type.clone();
-                Ok(ExposedSecret { secret, exposure_type })
-            },
-            None => Err(ProcessRunningError::NoSuchSecret(e.name.clone())),
-        }).collect::<Result<Vec<ExposedSecret>, ProcessRunningError>>()?;
+        let full_exposures = exposures
+            .iter()
+            .map(|e| match secrets_map.get(&e.name) {
+                Some(secret) => {
+                    let secret = (*secret).clone();
+                    let exposure_type = e.exposure_type.clone();
+                    Ok(ExposedSecret {
+                        secret,
+                        exposure_type,
+                    })
+                }
+                None => Err(ProcessRunningError::NoSuchSecret(e.name.clone())),
+            })
+            .collect::<Result<Vec<ExposedSecret>, ProcessRunningError>>()?;
         let identities = age::get_identities(&self.private_key_paths)?;
         let status = run_process(argv, &full_exposures, &identities, &self.backing).await?;
 
         Ok(status)
     }
-
 
     async fn write_secret_to_file(
         &self,
@@ -202,4 +243,14 @@ pub enum MountSecretError {
     PermissionSettingFailure(nix::errno::Errno),
     #[error("failed to create file to write decrypted secret: {0}")]
     CreatingFilesFailure(std::io::Error),
+}
+
+#[derive(Error, Debug)]
+pub enum CreateUpdateSecretError {
+    #[error("error reading source file: {0}")]
+    ReadSourceFile(std::io::Error),
+    #[error("failed to write to backing store: {0}")]
+    WritingToStore(Box<dyn std::error::Error>),
+    #[error("error encrypting secret: {0}")]
+    EncryptingSecret(EncryptionError),
 }

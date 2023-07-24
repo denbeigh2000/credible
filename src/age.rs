@@ -1,9 +1,28 @@
 use std::path::Path;
 
 use age::cli_common::read_identities;
-use age::{Decryptor, Identity};
+use age::{Decryptor, Encryptor, Identity, Recipient};
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio_util::compat::{TokioAsyncReadCompatExt, FuturesAsyncReadCompatExt};
+use tokio_util::compat::{
+    FuturesAsyncReadCompatExt,
+    FuturesAsyncWriteCompatExt,
+    TokioAsyncReadCompatExt,
+    TokioAsyncWriteCompatExt,
+};
+
+#[derive(thiserror::Error, Debug)]
+pub enum EncryptionError {
+    #[error("error creating encryption stream: {0}")]
+    CreatingStream(age::EncryptError),
+    #[error("no valid recipients found")]
+    NoRecipientsFound,
+    #[error("error writing encrypted secret: {0}")]
+    WritingSecret(std::io::Error),
+    #[error("error writing encrypted secret to backing store: {0}")]
+    WritingToBackingStore(Box<dyn std::error::Error>),
+    #[error("the given public keys weren't valid")]
+    InvalidRecipients,
+}
 
 #[derive(thiserror::Error, Debug)]
 pub enum DecryptionError {
@@ -17,7 +36,7 @@ pub enum DecryptionError {
     DecryptingSecret(age::DecryptError),
     #[error("given secret is passphrase-encrypted, which isn't supported by this tool")]
     PassphraseEncryptedFile,
-    #[error("writing secret to file")]
+    #[error("writing secret to file: {0}")]
     WritingSecret(std::io::Error),
 }
 
@@ -60,4 +79,49 @@ where
         .map_err(DecryptionError::WritingSecret)?;
 
     Ok(())
+}
+
+pub async fn encrypt_bytes<R, W>(
+    mut unencrypted: R,
+    writer: W,
+    public_keys: &[String],
+) -> Result<(), EncryptionError>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    let compat_writer = writer.compat_write();
+    let recipients = public_keys
+        .iter()
+        .filter_map(|key| parse_recipient(key).ok())
+        .collect::<Vec<Box<dyn Recipient + Send>>>();
+    if recipients.is_empty() {
+        return Err(EncryptionError::NoRecipientsFound);
+    }
+    let mut encrypted_writer = Encryptor::with_recipients(recipients)
+        .ok_or(EncryptionError::NoRecipientsFound)?
+        .wrap_async_output(compat_writer)
+        .await
+        .map_err(EncryptionError::CreatingStream)?
+        .compat_write();
+
+    tokio::io::copy(&mut unencrypted, &mut encrypted_writer)
+        .await
+        .map_err(EncryptionError::WritingSecret)?;
+
+    Ok(())
+}
+
+// [Adapted from str4d/rage (ASL-2.0)](
+// https://github.com/str4d/rage/blob/85c0788dc511f1410b4c1811be6b8904d91f85db/rage/src/bin/rage/main.rs)
+fn parse_recipient(
+    s: &str,
+) -> Result<Box<dyn Recipient + Send>, EncryptionError> {
+    if let Ok(pk) = s.parse::<age::x25519::Recipient>() {
+        Ok(Box::new(pk))
+    } else if let Ok(pk) = s.parse::<age::ssh::Recipient>() {
+        Ok(Box::new(pk))
+    } else {
+        Err(EncryptionError::InvalidRecipients)
+    }
 }
