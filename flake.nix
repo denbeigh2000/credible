@@ -15,11 +15,13 @@
         };
 
         inherit (pkgs) callPackage;
-        inherit (pkgs.stdenvNoCC.hostPlatform) isLinux;
+        inherit (pkgs.stdenvNoCC.hostPlatform) isDarwin isLinux;
 
         naersk' = pkgs.callPackage naersk { };
 
+        allPkgs = with pkgs; [ rust-bin.nightly.latest.default rust-analyzer ];
         linuxOnlyPkgs = with pkgs; [ libudev-zero pkg-config ];
+        darwinOnlyPkgs = with pkgs; [ darwin.apple_sdk.frameworks.Security ];
 
       in
       rec {
@@ -30,10 +32,9 @@
 
         # For `nix develop`:
         devShell = pkgs.mkShell {
-          nativeBuildInputs = with pkgs; [
-            rust-bin.nightly.latest.default
-            rust-analyzer
-          ] ++ (if isLinux then linuxOnlyPkgs else []);
+          nativeBuildInputs = allPkgs
+            ++ (if isLinux then linuxOnlyPkgs else [ ])
+            ++ (if isDarwin then darwinOnlyPkgs else [ ]);
         };
       }
     );

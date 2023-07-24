@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use age_flake_tool::BackingConfig::S3;
 use age_flake_tool::{
+    ExposedSecretConfig,
     GroupWrapper,
     MountSecretError,
     SecretManagerBuilder,
@@ -34,6 +35,14 @@ struct CliParams {
 enum Actions {
     Mount {},
     Edit { secret_name: String },
+    RunCommand(RunCommandArgs),
+}
+
+#[derive(clap::Args, Debug)]
+struct RunCommandArgs {
+    cmd: Vec<String>,
+    #[clap(long, short, num_args = 0..)]
+    mount: Vec<ExposedSecretConfig>,
 }
 
 #[derive(Debug, Error)]
@@ -72,6 +81,7 @@ async fn real_main() -> Result<(), MainError> {
     match args.action {
         Actions::Mount {} => manager.mount_secrets().await?,
         Actions::Edit { secret_name: _ } => todo!(),
+        Actions::RunCommand {..} => todo!(),
     };
 
     Ok(())

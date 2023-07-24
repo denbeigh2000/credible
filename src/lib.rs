@@ -1,4 +1,7 @@
-use std::marker::PhantomData;
+use std::collections::HashMap;
+use std::{marker::PhantomData};
+use std::process::ExitStatus;
+use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
 
 use ::age::Identity;
@@ -7,9 +10,11 @@ use serde::Deserialize;
 use thiserror::Error;
 use tokio::fs::{self, OpenOptions};
 
+mod builder;
+pub use builder::SecretManagerBuilder;
 mod secret;
-use secret::S3Config;
-pub use secret::{Secret, SecretBackingImpl, SecretError};
+use secret::{S3Config, ProcessRunningError, run_process};
+pub use secret::{ExposedSecretConfig, Secret, SecretBackingImpl, SecretError};
 
 mod age;
 
@@ -25,6 +30,8 @@ use darwin::*;
 mod linux;
 #[cfg(target_os = "linux")]
 use linux::*;
+
+use crate::secret::ExposedSecret;
 
 #[derive(Deserialize, Debug)]
 pub struct RuntimeKey {
@@ -75,104 +82,74 @@ pub trait IntoSecretBackingImpl {
     async fn build(self) -> Self::Impl;
 }
 
-#[derive(Default)]
-pub struct SecretManagerBuilder {
-    secret_root: Option<PathBuf>,
-    owner_user: Option<User>,
-    owner_group: Option<Group>,
-    secrets: Option<Vec<Secret>>,
-    keys: Option<Vec<RuntimeKey>>,
-    private_key_paths: Option<Vec<PathBuf>>,
-}
-
-impl SecretManagerBuilder {
-    pub fn set_secret_root(self, secret_root: PathBuf) -> Self {
-        Self {
-            secret_root: Some(secret_root),
-            ..self
-        }
-    }
-
-    pub fn set_owner_user(self, user: User) -> Self {
-        Self {
-            owner_user: Some(user),
-            ..self
-        }
-    }
-
-    pub fn set_owner_group(self, group: Group) -> Self {
-        Self {
-            owner_group: Some(group),
-            ..self
-        }
-    }
-
-    pub fn set_secrets(self, secrets: Vec<Secret>) -> Self {
-        Self {
-            secrets: Some(secrets),
-            ..self
-        }
-    }
-
-    pub fn set_keys(self, keys: Vec<RuntimeKey>) -> Self {
-        Self {
-            keys: Some(keys),
-            ..self
-        }
-    }
-
-    pub fn set_private_key_paths(self, paths: Vec<PathBuf>) -> Self {
-        Self {
-            private_key_paths: Some(paths),
-            ..self
-        }
-    }
-
-    pub async fn build<I>(
-        self,
-        imp: I,
-    ) -> SecretManager<
-        <I as IntoSecretBackingImpl>::Error,
-        <I as IntoSecretBackingImpl>::Impl,
-    >
-    where
-        I: IntoSecretBackingImpl + 'static,
-        <I as IntoSecretBackingImpl>::Error: 'static,
-        <I as IntoSecretBackingImpl>::Impl: 'static,
-    {
-        let private_key_paths = self.private_key_paths.unwrap_or_else(|| {
-            let home = match std::env::var("HOME") {
-                Ok(homedir) => homedir,
-                Err(_) => return Vec::new(),
-            };
-
-            let mut ssh_dir = PathBuf::new();
-            ssh_dir.push(home);
-            ssh_dir.push(".ssh");
-
-            let rsa_path = ssh_dir.join("id_rsa");
-            let ed25519_path = ssh_dir.join("id_ed25519");
-            vec![rsa_path, ed25519_path]
-        });
-
-        let backing = imp.build().await;
-        SecretManager::new(
-            self.secret_root.unwrap(),
-            self.owner_user.unwrap(),
-            self.owner_group.unwrap(),
-            self.secrets.unwrap(),
-            self.keys.unwrap(),
-            private_key_paths,
-            backing,
-        )
-    }
-}
-
 impl<E, I> SecretManager<E, I>
 where
     E: SecretError + 'static + Sized,
     I: SecretBackingImpl<Error = E>,
+    ProcessRunningError: From<<I as SecretBackingImpl>::Error>,
 {
+    pub fn new(
+        secret_root: PathBuf,
+        owner_user: User,
+        owner_group: Group,
+        secrets: Vec<Secret>,
+        keys: Vec<RuntimeKey>,
+        private_key_paths: Vec<PathBuf>,
+        backing: I,
+    ) -> Self {
+        Self {
+            secret_root,
+            owner_user,
+            owner_group,
+            secrets,
+            keys,
+            private_key_paths,
+            backing,
+
+            _data1: Default::default(),
+        }
+    }
+
+    pub async fn mount_secrets(&self) -> Result<ExitStatus, MountSecretError> {
+        if device_mounted(&self.secret_root)? {
+            return Err(MountSecretError::AlreadyMounted);
+        }
+
+        if !self.secret_root.exists() {
+            let _ = fs::create_dir(&self.secret_root)
+                .await
+                .map_err(MountSecretError::CreatingFilesFailure);
+        }
+
+        mount_persistent_ramfs(&self.secret_root)
+            .map_err(MountSecretError::RamfsCreationFailure)?;
+        let identities = age::get_identities(&self.private_key_paths)?;
+        for secret in self.secrets.iter() {
+            self.write_secret_to_file(secret, &identities).await?;
+        }
+
+        Ok(ExitStatus::from_raw(0))
+    }
+
+    pub async fn run_command(&self, argv: &[String], exposures: &[ExposedSecretConfig]) -> Result<ExitStatus, ProcessRunningError> {
+        let secrets_map = self.secrets.iter().fold(HashMap::new(), |mut acc, x| {
+            acc.insert(x.name.clone(), x);
+            acc
+        });
+        let full_exposures = exposures.iter().map(|e| match secrets_map.get(&e.name) {
+            Some(secret) => {
+                let secret = (*secret).clone();
+                let exposure_type = e.exposure_type.clone();
+                Ok(ExposedSecret { secret, exposure_type })
+            },
+            None => Err(ProcessRunningError::NoSuchSecret(e.name.clone())),
+        }).collect::<Result<Vec<ExposedSecret>, ProcessRunningError>>()?;
+        let identities = age::get_identities(&self.private_key_paths)?;
+        run_process(argv, &full_exposures, &identities, &self.backing).await?;
+        unimplemented!()
+    }
+
+
     async fn write_secret_to_file(
         &self,
         secret: &Secret,
@@ -203,48 +180,6 @@ where
         .map_err(MountSecretError::PermissionSettingFailure)?;
 
         Ok(exp_path)
-    }
-
-    pub async fn mount_secrets(&self) -> Result<u32, MountSecretError> {
-        if device_mounted(&self.secret_root)? {
-            return Err(MountSecretError::AlreadyMounted);
-        }
-
-        if !self.secret_root.exists() {
-            let _ = fs::create_dir(&self.secret_root)
-                .await
-                .map_err(MountSecretError::CreatingFilesFailure);
-        }
-
-        mount_persistent_ramfs(&self.secret_root)
-            .map_err(MountSecretError::RamfsCreationFailure)?;
-        let identities = age::get_identities(&self.private_key_paths)?;
-        for secret in self.secrets.iter() {
-            self.write_secret_to_file(secret, &identities).await?;
-        }
-        Ok(0)
-    }
-
-    pub fn new(
-        secret_root: PathBuf,
-        owner_user: User,
-        owner_group: Group,
-        secrets: Vec<Secret>,
-        keys: Vec<RuntimeKey>,
-        private_key_paths: Vec<PathBuf>,
-        backing: I,
-    ) -> Self {
-        Self {
-            secret_root,
-            owner_user,
-            owner_group,
-            secrets,
-            keys,
-            private_key_paths,
-            backing,
-
-            _data1: Default::default(),
-        }
     }
 }
 

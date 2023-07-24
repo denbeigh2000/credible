@@ -6,7 +6,10 @@ use serde::Deserialize;
 mod s3;
 pub use s3::*;
 
-#[derive(Deserialize, Debug)]
+mod process;
+pub use process::*;
+
+#[derive(Deserialize, Debug, Clone)]
 pub struct Secret {
     pub name: String,
     pub encrypted_path: PathBuf,
