@@ -22,12 +22,6 @@ struct CliParams {
     #[arg(short, long, env, default_value = "/run/credible.d")]
     secret_root: PathBuf,
 
-    #[arg(short, long, env, default_value = "0")]
-    user: UserWrapper,
-
-    #[arg(short, long, env, default_value = "0")]
-    group: GroupWrapper,
-
     #[arg(short, long, env)]
     config_file: PathBuf,
 
@@ -46,6 +40,31 @@ enum Actions {
 
 #[derive(clap::Args, Debug)]
 struct MountArgs {
+    #[clap(
+        long,
+        short,
+        env = "CREDIBLE_MOUNT_POINT",
+        default_value = "/run/credible.d"
+    )]
+    mount_point: PathBuf,
+
+    #[clap(
+        long,
+        short,
+        env = "CREDIBLE_SECRET_DIR",
+        default_value = "/run/credible"
+    )]
+    secret_dir: PathBuf,
+
+    #[arg(short, long, env = "CREDIBLE_OWNER_USER")]
+    user: Option<UserWrapper>,
+
+    #[arg(short, long, env = "CREDIBLE_OWNER_GROUP")]
+    group: Option<GroupWrapper>,
+}
+
+#[derive(clap::Args, Debug)]
+struct UnmountArgs {
     #[clap(
         long,
         short,
@@ -118,16 +137,17 @@ async fn real_main() -> Result<(), MainError> {
     };
 
     let manager = SecretManagerBuilder::default()
-        .set_secret_root(args.secret_root)
-        .set_owner_user(config.owner_user.into())
-        .set_owner_group(config.owner_group.into())
         .set_secrets(config.secrets)
         .set_private_key_paths(config.private_key_paths)
         .build(cfg)
         .await;
 
     match args.action {
-        Actions::Mount(args) => manager.mount(&args.mount_point, &args.secret_dir).await?,
+        Actions::Mount(a) => {
+            manager
+                .mount(&a.mount_point, &a.secret_dir, &a.user, &a.group)
+                .await?
+        }
         Actions::Unmount(args) => manager.unmount(&args.mount_point, &args.secret_dir).await?,
         Actions::Edit(args) => manager.edit(&args.secret_name, &args.editor).await?,
         Actions::RunCommand(args) => manager.run_command(&args.cmd, &args.mount).await?,

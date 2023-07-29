@@ -6,7 +6,7 @@ use std::process::ExitStatus;
 
 use ::age::Identity;
 use age::{encrypt_bytes, EncryptionError};
-use nix::unistd::{Group, User};
+use nix::unistd::{Gid, Uid};
 use serde::Deserialize;
 use tempfile::NamedTempFile;
 use thiserror::Error;
@@ -50,8 +50,6 @@ pub struct RuntimeKey {
 
 #[derive(Deserialize, Debug)]
 pub struct SecretManagerConfig {
-    pub owner_user: UserWrapper,
-    pub owner_group: GroupWrapper,
     pub secrets: Vec<Secret>,
     pub private_key_paths: Vec<PathBuf>,
 
@@ -69,9 +67,6 @@ where
     E: SecretError,
     I: SecretBackingImpl,
 {
-    pub secret_root: PathBuf,
-    pub owner_user: User,
-    pub owner_group: Group,
     pub secrets: Vec<Secret>,
     pub private_key_paths: Vec<PathBuf>,
 
@@ -95,17 +90,11 @@ where
     ProcessRunningError: From<<I as SecretBackingImpl>::Error>,
 {
     pub fn new(
-        secret_root: PathBuf,
-        owner_user: User,
-        owner_group: Group,
         secrets: Vec<Secret>,
         private_key_paths: Vec<PathBuf>,
         backing: I,
     ) -> Self {
         Self {
-            secret_root,
-            owner_user,
-            owner_group,
             secrets,
             private_key_paths,
             backing,
@@ -192,6 +181,8 @@ where
         &self,
         mount_point: &Path,
         secret_dir: &Path,
+        owner: &Option<UserWrapper>,
+        group: &Option<GroupWrapper>,
     ) -> Result<ExitStatus, MountSecretsError> {
         if device_mounted(mount_point)? {
             return Err(MountSecretsError::AlreadyMounted);
@@ -206,7 +197,22 @@ where
         mount_persistent_ramfs(mount_point).map_err(MountSecretsError::RamfsCreationFailure)?;
         let identities = age::get_identities(&self.private_key_paths)?;
         for secret in self.secrets.iter() {
-            self.write_secret_to_file(secret, &identities).await?;
+            let secret_owner = secret
+                .owner_user
+                .as_ref()
+                .or(owner.as_ref())
+                .map(|u| u.as_ref().uid)
+                .unwrap_or_else(Uid::current);
+
+            let secret_group = secret
+                .owner_group
+                .as_ref()
+                .or(group.as_ref())
+                .map(|g| g.as_ref().gid)
+                .unwrap_or_else(Gid::current);
+
+            self.write_secret_to_file(mount_point, secret, &identities, secret_owner, secret_group)
+                .await?;
         }
         tokio::fs::symlink(mount_point, secret_dir)
             .await
@@ -295,10 +301,13 @@ where
 
     async fn write_secret_to_file(
         &self,
+        root: &Path,
         secret: &Secret,
         identities: &[Box<dyn Identity>],
+        owner: nix::unistd::Uid,
+        group: nix::unistd::Gid,
     ) -> Result<PathBuf, MountSecretsError> {
-        let exp_path = self.secret_root.join(&secret.name);
+        let exp_path = root.join(&secret.name);
         let (mut r, w) = tokio_pipe::pipe().map_err(MountSecretsError::DataPipeError)?;
         self.backing
             .read(&secret.path, w)
@@ -315,12 +324,8 @@ where
 
         age::decrypt_bytes(&mut r, &mut file, identities).await?;
         drop(file);
-        nix::unistd::chown(
-            &exp_path,
-            Some(self.owner_user.uid),
-            Some(self.owner_group.gid),
-        )
-        .map_err(MountSecretsError::PermissionSettingFailure)?;
+        nix::unistd::chown(&exp_path, Some(owner), Some(group))
+            .map_err(MountSecretsError::PermissionSettingFailure)?;
 
         Ok(exp_path)
     }

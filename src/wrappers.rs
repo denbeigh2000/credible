@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{str::FromStr, ops::Deref};
 
 use nix::unistd::{Group, User};
 use serde_with::DeserializeFromStr;
@@ -30,6 +30,12 @@ impl From<UserWrapper> for User {
     }
 }
 
+impl AsRef<User> for UserWrapper {
+    fn as_ref(&self) -> &User {
+        &self.0
+    }
+}
+
 impl FromStr for GroupWrapper {
     type Err = &'static str;
 
@@ -54,5 +60,11 @@ pub struct GroupWrapper(Group);
 impl From<GroupWrapper> for Group {
     fn from(value: GroupWrapper) -> Self {
         value.0
+    }
+}
+
+impl AsRef<Group> for GroupWrapper {
+    fn as_ref(&self) -> &Group {
+        &self.0
     }
 }

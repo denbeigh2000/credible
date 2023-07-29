@@ -4,6 +4,8 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use tokio::io::{AsyncRead, AsyncWrite};
 
+use crate::wrappers::{GroupWrapper, UserWrapper};
+
 mod s3;
 pub use s3::*;
 
@@ -19,6 +21,9 @@ pub struct Secret {
 
     // TODO: Will this be fine for all providers?
     pub path: PathBuf,
+
+    pub owner_user: Option<UserWrapper>,
+    pub owner_group: Option<GroupWrapper>,
 }
 
 #[async_trait]
