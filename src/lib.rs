@@ -51,6 +51,7 @@ pub struct RuntimeKey {
 #[derive(Deserialize, Debug)]
 pub struct SecretManagerConfig {
     pub secrets: Vec<Secret>,
+    #[serde(alias = "backingConfig")]
     pub backing_config: BackingConfig,
 }
 
@@ -211,6 +212,11 @@ where
 
             self.write_secret_to_file(mount_point, secret, &identities, secret_owner, secret_group)
                 .await?;
+
+            if let Some(p) = secret.mount_path.as_ref() {
+                let dest_path = mount_point.join(&secret.name);
+                tokio::fs::symlink(&dest_path, p).await.map_err(MountSecretsError::SymlinkCreationFailure)?;
+            }
         }
         tokio::fs::symlink(mount_point, secret_dir)
             .await

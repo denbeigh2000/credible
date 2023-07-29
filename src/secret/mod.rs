@@ -15,14 +15,17 @@ pub use process::*;
 #[derive(Deserialize, Debug, Clone)]
 pub struct Secret {
     pub name: String,
+    #[serde(alias = "encryptionKeys")]
     pub encryption_keys: Vec<String>,
-
-    // TODO: Per-secret user/group/mode override
 
     // TODO: Will this be fine for all providers?
     pub path: PathBuf,
+    #[serde(alias = "mountPath")]
+    pub mount_path: Option<PathBuf>,
 
+    #[serde(alias = "ownerUser")]
     pub owner_user: Option<UserWrapper>,
+    #[serde(alias = "ownerGroup")]
     pub owner_group: Option<GroupWrapper>,
 }
 

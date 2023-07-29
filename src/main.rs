@@ -19,11 +19,11 @@ use thiserror::Error;
 
 #[derive(Parser, Debug)]
 struct CliParams {
-    #[arg(short, long, env)]
+    #[arg(short, long, env = "CREDIBLE_CONFIG_FILE")]
     /// Path to the configuration file.
     config_file: PathBuf,
 
-    #[arg(short, long, env, value_delimiter = ',')]
+    #[arg(short, long, env = "CREDIBLE_PRIVATE_KEY_PATHS", value_delimiter = ',')]
     /// Comma-separated list of local private keys to use for decryption.
     /// If not provided, $HOME/.ssh/id_rsa and $HOME/.ssh/id_ecsda are checked.
     private_key_paths: Option<Vec<PathBuf>>,
