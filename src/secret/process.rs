@@ -102,6 +102,8 @@ pub enum ProcessRunningError {
     ForkingProcess(std::io::Error),
     #[error("no such secret: {0}")]
     NoSuchSecret(String),
+    #[error("creating data pipe: {0}")]
+    CreatingDataPipe(std::io::Error),
 }
 
 pub async fn run_process<B>(
@@ -133,11 +135,12 @@ where
     let mut cleanup_paths: Vec<PathBuf> = Vec::new();
 
     for exposure in exposures {
-        let encrypted_bytes = backing.read(&exposure.secret.path).await?;
+        let (mut r, mut w) = tokio_pipe::pipe().map_err(ProcessRunningError::CreatingDataPipe)?;
+        backing.read(&exposure.secret.path, &mut w).await?;
         match &exposure.exposure_type {
             ExposureType::EnvironmentVariable(name) => {
                 let mut buf = Vec::<u8>::new();
-                decrypt_bytes(&*encrypted_bytes, &mut buf, identities).await?;
+                decrypt_bytes(&mut r, &mut buf, identities).await?;
                 let decrypted_string = String::from_utf8(buf).map_err(|e| {
                     ProcessRunningError::NotValidUTF8(exposure.secret.name.clone(), e)
                 })?;
@@ -155,7 +158,7 @@ where
                     .await
                     .map_err(ProcessRunningError::CreatingTempFile)?;
 
-                decrypt_bytes(&*encrypted_bytes, &mut file, identities).await?;
+                decrypt_bytes(&mut r, &mut file, identities).await?;
                 if let Some(path) = maybe_path {
                     tokio::fs::symlink(&dest_path, &path)
                         .await
@@ -166,18 +169,22 @@ where
             }
         }
     }
-
     let result = cmd
         .status()
         .await
         .map_err(ProcessRunningError::ForkingProcess)?;
+    drop(secret_dir);
 
+    // Clean up dangling symlinks
     for path in cleanup_paths {
         if let Err(e) = tokio::fs::remove_file(path)
             .await
             .map_err(ProcessRunningError::DeletingSymlink)
         {
-            eprintln!("{e}");
+            // Failure to delete these isn't worth returning an error, because
+            // these are just vanity symlinks that were pointing to our
+            // now-deleted temp dir
+            eprintln!("error cleaning up symlink: {e}");
         };
     }
 

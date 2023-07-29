@@ -126,16 +126,16 @@ where
         let mut data = match source_file {
             Some(file) => tokio::fs::File::open(file)
                 .await
-                .map_err(CreateUpdateSecretError::ReadSourceFile)?,
+                .map_err(CreateUpdateSecretError::ReadSourceData)?,
             None => todo!("Secure tempdir editing"),
         };
 
-        let mut encrypted: Vec<u8> = Vec::new();
-        encrypt_bytes(&mut data, &mut encrypted, &secret.encryption_keys)
+        let (mut r, mut w) = tokio_pipe::pipe().map_err(CreateUpdateSecretError::ReadSourceData)?;
+        encrypt_bytes(&mut data, &mut w, &secret.encryption_keys)
             .await
             .map_err(CreateUpdateSecretError::EncryptingSecret)?;
         self.backing
-            .write(&secret.path, encrypted)
+            .write(&secret.path, &mut r)
             .await
             .map_err(|e| CreateUpdateSecretError::WritingToStore(Box::new(e)))?;
 
@@ -198,9 +198,10 @@ where
         identities: &[Box<dyn Identity>],
     ) -> Result<PathBuf, MountSecretError> {
         let exp_path = self.secret_root.join(&secret.name);
-        let encrypted_bytes = self
+        let (mut r, mut w) = tokio_pipe::pipe().map_err(MountSecretError::DataPipeError)?;
+        self
             .backing
-            .read(&secret.path)
+            .read(&secret.path, &mut w)
             .await
             .map_err(|e| MountSecretError::ReadFromStoreFailure(Box::new(e)))?;
         let mut file = OpenOptions::new()
@@ -212,7 +213,7 @@ where
             .await
             .map_err(MountSecretError::CreatingFilesFailure)?;
 
-        age::decrypt_bytes(&*encrypted_bytes, &mut file, identities).await?;
+        age::decrypt_bytes(&mut r, &mut file, identities).await?;
         drop(file);
         nix::unistd::chown(
             &exp_path,
@@ -243,12 +244,16 @@ pub enum MountSecretError {
     PermissionSettingFailure(nix::errno::Errno),
     #[error("failed to create file to write decrypted secret: {0}")]
     CreatingFilesFailure(std::io::Error),
+    #[error("failed to write secret to file: {0}")]
+    WritingToFileFailure(std::io::Error),
+    #[error("failed to create data pipe: {0}")]
+    DataPipeError(std::io::Error),
 }
 
 #[derive(Error, Debug)]
 pub enum CreateUpdateSecretError {
-    #[error("error reading source file: {0}")]
-    ReadSourceFile(std::io::Error),
+    #[error("error reading source data: {0}")]
+    ReadSourceData(std::io::Error),
     #[error("failed to write to backing store: {0}")]
     WritingToStore(Box<dyn std::error::Error>),
     #[error("error encrypting secret: {0}")]

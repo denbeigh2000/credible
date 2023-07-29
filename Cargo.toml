@@ -20,6 +20,7 @@ serde_with = "3.0.0"
 tempdir = "0.3.7"
 thiserror = "1.0.43"
 tokio = { version = "1.29.1", features = ["full"] }
+tokio-pipe = "0.2.12"
 tokio-util = { version = "0.7.8", features = ["compat"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]

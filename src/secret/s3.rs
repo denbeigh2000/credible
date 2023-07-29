@@ -8,6 +8,7 @@ use aws_sdk_s3::primitives::{ByteStream, ByteStreamError};
 use aws_sdk_s3::Client;
 use serde::Deserialize;
 use thiserror::Error;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 
 use crate::secret::{SecretBackingImpl, SecretError};
 use crate::IntoSecretBackingImpl;
@@ -38,6 +39,8 @@ pub enum S3SecretBackingError {
     UpdatingObject(#[from] SdkError<PutObjectError>),
     #[error("error reading data from s3: {0}")]
     ReadingData(#[from] ByteStreamError),
+    #[error("error copying data: {0}")]
+    CopyingData(#[from] std::io::Error)
 }
 
 impl SecretError for S3SecretBackingError {}
@@ -58,7 +61,7 @@ impl S3SecretBacking {
 impl SecretBackingImpl for S3SecretBacking {
     type Error = S3SecretBackingError;
 
-    async fn read(&self, key: &Path) -> Result<Vec<u8>, Self::Error> {
+    async fn read<W: AsyncWrite + Send + Unpin>(&self, key: &Path, writer: &mut W) -> Result<(), Self::Error> {
         let path_str = key.to_str().expect("path not representable as str");
         let object = self
             .client
@@ -68,13 +71,18 @@ impl SecretBackingImpl for S3SecretBacking {
             .send()
             .await?;
 
-        let data = object.body.collect().await?.into_bytes();
-        Ok(data.into())
+
+        let mut reader = object.body.into_async_read();
+        tokio::io::copy(&mut reader, writer).await?;
+
+        Ok(())
     }
 
-    async fn write(&self, key: &Path, new_encrypted_content: Vec<u8>) -> Result<(), Self::Error> {
+    async fn write<R: AsyncRead + Send + Unpin>(&self, key: &Path, new_encrypted_content: &mut R) -> Result<(), Self::Error> {
         let path_str = key.to_str().expect("path not representable as str");
-        let body = ByteStream::from(new_encrypted_content);
+        let mut buf = Vec::new();
+        new_encrypted_content.read_to_end(&mut buf).await?;
+        let body = ByteStream::from(buf);
         self.client
             .put_object()
             .bucket(&self.bucket)
