@@ -1,18 +1,20 @@
 use std::fs;
 use std::path::PathBuf;
 
+use clap::{Parser, Subcommand};
 use credible::BackingConfig::S3;
 use credible::{
+    EditSecretError,
     ExposedSecretConfig,
     GroupWrapper,
-    MountSecretError,
+    MountSecretsError,
     ProcessRunningError,
     SecretManagerBuilder,
     SecretManagerConfig,
+    UnmountSecretsError,
     UploadSecretError,
-    UserWrapper, EditSecretError,
+    UserWrapper,
 };
-use clap::{Parser, Subcommand};
 use thiserror::Error;
 
 #[derive(Parser, Debug)]
@@ -35,10 +37,30 @@ struct CliParams {
 
 #[derive(Subcommand, Debug)]
 enum Actions {
-    Mount {},
+    Mount(MountArgs),
+    Unmount(MountArgs),
     Edit(EditCommandArgs),
     RunCommand(RunCommandArgs),
     Upload(UploadCommandArgs),
+}
+
+#[derive(clap::Args, Debug)]
+struct MountArgs {
+    #[clap(
+        long,
+        short,
+        env = "CREDIBLE_MOUNT_POINT",
+        default_value = "/run/credible.d"
+    )]
+    mount_point: PathBuf,
+
+    #[clap(
+        long,
+        short,
+        env = "CREDIBLE_SECRET_DIR",
+        default_value = "/run/credible"
+    )]
+    secret_dir: PathBuf,
 }
 
 #[derive(clap::Args, Debug)]
@@ -72,7 +94,9 @@ enum MainError {
     #[error("invalid config file: {0}")]
     ParsingConfigFile(#[from] serde_json::Error),
     #[error("mounting secrets: {0}")]
-    MountingSecrets(#[from] MountSecretError),
+    MountingSecrets(#[from] MountSecretsError),
+    #[error("unmounting secrets: {0}")]
+    UnmountingSecrets(#[from] UnmountSecretsError),
     #[error("running subcommand: {0}")]
     RunningProcess(#[from] ProcessRunningError),
     #[error("uploading secret: {0}")]
@@ -103,7 +127,8 @@ async fn real_main() -> Result<(), MainError> {
         .await;
 
     match args.action {
-        Actions::Mount {} => manager.mount_secrets().await?,
+        Actions::Mount(args) => manager.mount(&args.mount_point, &args.secret_dir).await?,
+        Actions::Unmount(args) => manager.unmount(&args.mount_point, &args.secret_dir).await?,
         Actions::Edit(args) => manager.edit(&args.secret_name, &args.editor).await?,
         Actions::RunCommand(args) => manager.run_command(&args.cmd, &args.mount).await?,
         Actions::Upload(args) => manager.upload(&args.secret_name, &args.source_file).await?,

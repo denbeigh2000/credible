@@ -188,23 +188,50 @@ where
         Ok(ExitStatus::from_raw(0))
     }
 
-    pub async fn mount_secrets(&self) -> Result<ExitStatus, MountSecretError> {
-        if device_mounted(&self.secret_root)? {
-            return Err(MountSecretError::AlreadyMounted);
+    pub async fn mount(
+        &self,
+        mount_point: &Path,
+        secret_dir: &Path,
+    ) -> Result<ExitStatus, MountSecretsError> {
+        if device_mounted(mount_point)? {
+            return Err(MountSecretsError::AlreadyMounted);
         }
 
-        if !self.secret_root.exists() {
-            let _ = fs::create_dir(&self.secret_root)
+        if !mount_point.exists() {
+            let _ = fs::create_dir(mount_point)
                 .await
-                .map_err(MountSecretError::CreatingFilesFailure);
+                .map_err(MountSecretsError::CreatingFilesFailure);
         }
 
-        mount_persistent_ramfs(&self.secret_root)
-            .map_err(MountSecretError::RamfsCreationFailure)?;
+        mount_persistent_ramfs(mount_point).map_err(MountSecretsError::RamfsCreationFailure)?;
         let identities = age::get_identities(&self.private_key_paths)?;
         for secret in self.secrets.iter() {
             self.write_secret_to_file(secret, &identities).await?;
         }
+        tokio::fs::symlink(mount_point, secret_dir)
+            .await
+            .map_err(MountSecretsError::SymlinkCreationFailure)?;
+
+        Ok(ExitStatus::from_raw(0))
+    }
+
+    pub async fn unmount(
+        &self,
+        mount_point: &Path,
+        secret_dir: &Path,
+    ) -> Result<ExitStatus, UnmountSecretsError> {
+        if !device_mounted(mount_point)? {
+            return Ok(ExitStatus::from_raw(0));
+        }
+
+        Command::new("umount")
+            .arg(mount_point)
+            .status()
+            .await
+            .map_err(UnmountSecretsError::InvokingCommand)?;
+        tokio::fs::remove_file(secret_dir)
+            .await
+            .map_err(UnmountSecretsError::RemovingSymlink)?;
 
         Ok(ExitStatus::from_raw(0))
     }
@@ -270,13 +297,13 @@ where
         &self,
         secret: &Secret,
         identities: &[Box<dyn Identity>],
-    ) -> Result<PathBuf, MountSecretError> {
+    ) -> Result<PathBuf, MountSecretsError> {
         let exp_path = self.secret_root.join(&secret.name);
-        let (mut r, w) = tokio_pipe::pipe().map_err(MountSecretError::DataPipeError)?;
+        let (mut r, w) = tokio_pipe::pipe().map_err(MountSecretsError::DataPipeError)?;
         self.backing
             .read(&secret.path, w)
             .await
-            .map_err(|e| MountSecretError::ReadFromStoreFailure(Box::new(e)))?;
+            .map_err(|e| MountSecretsError::ReadFromStoreFailure(Box::new(e)))?;
         let mut file = OpenOptions::new()
             .write(true)
             .truncate(true)
@@ -284,7 +311,7 @@ where
             .mode(0o0600)
             .open(&exp_path)
             .await
-            .map_err(MountSecretError::CreatingFilesFailure)?;
+            .map_err(MountSecretsError::CreatingFilesFailure)?;
 
         age::decrypt_bytes(&mut r, &mut file, identities).await?;
         drop(file);
@@ -293,14 +320,14 @@ where
             Some(self.owner_user.uid),
             Some(self.owner_group.gid),
         )
-        .map_err(MountSecretError::PermissionSettingFailure)?;
+        .map_err(MountSecretsError::PermissionSettingFailure)?;
 
         Ok(exp_path)
     }
 }
 
 #[derive(Error, Debug)]
-pub enum MountSecretError {
+pub enum MountSecretsError {
     #[error("mount point already in use, unmount first")]
     AlreadyMounted,
     #[error("failed to check if mounted: {0}")]
@@ -321,6 +348,18 @@ pub enum MountSecretError {
     WritingToFileFailure(std::io::Error),
     #[error("failed to create data pipe: {0}")]
     DataPipeError(std::io::Error),
+    #[error("failed to create symlink: {0}")]
+    SymlinkCreationFailure(std::io::Error),
+}
+
+#[derive(Error, Debug)]
+pub enum UnmountSecretsError {
+    #[error("error checking if device mounted: {0}")]
+    CheckMountedError(#[from] CheckMountedError),
+    #[error("error invoking umount: {0}")]
+    InvokingCommand(std::io::Error),
+    #[error("error removing symlink: {0}")]
+    RemovingSymlink(std::io::Error),
 }
 
 #[derive(Error, Debug)]
