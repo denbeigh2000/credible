@@ -61,7 +61,7 @@ impl S3SecretBacking {
 impl SecretBackingImpl for S3SecretBacking {
     type Error = S3SecretBackingError;
 
-    async fn read<W: AsyncWrite + Send + Unpin>(&self, key: &Path, writer: &mut W) -> Result<(), Self::Error> {
+    async fn read<W: AsyncWrite + Send + Unpin>(&self, key: &Path, mut writer: W) -> Result<(), Self::Error> {
         let path_str = key.to_str().expect("path not representable as str");
         let object = self
             .client
@@ -71,14 +71,13 @@ impl SecretBackingImpl for S3SecretBacking {
             .send()
             .await?;
 
-
         let mut reader = object.body.into_async_read();
-        tokio::io::copy(&mut reader, writer).await?;
+        tokio::io::copy(&mut reader, &mut writer).await?;
 
         Ok(())
     }
 
-    async fn write<R: AsyncRead + Send + Unpin>(&self, key: &Path, new_encrypted_content: &mut R) -> Result<(), Self::Error> {
+    async fn write<R: AsyncRead + Send + Unpin>(&self, key: &Path, mut new_encrypted_content: R) -> Result<(), Self::Error> {
         let path_str = key.to_str().expect("path not representable as str");
         let mut buf = Vec::new();
         new_encrypted_content.read_to_end(&mut buf).await?;

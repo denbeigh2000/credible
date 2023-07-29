@@ -123,7 +123,7 @@ where
     }
 
     // TODO: permissions?
-    let secret_dir = tempdir::TempDir::new("").map_err(ProcessRunningError::CreatingTempDir)?;
+    let secret_dir = tempfile::tempdir().map_err(ProcessRunningError::CreatingTempDir)?;
     cmd.env(
         "SECRETS_FILE_DIR",
         secret_dir
@@ -135,12 +135,15 @@ where
     let mut cleanup_paths: Vec<PathBuf> = Vec::new();
 
     for exposure in exposures {
-        let (mut r, mut w) = tokio_pipe::pipe().map_err(ProcessRunningError::CreatingDataPipe)?;
-        backing.read(&exposure.secret.path, &mut w).await?;
+        let (mut r, w) = tokio_pipe::pipe().map_err(ProcessRunningError::CreatingDataPipe)?;
+        let read_fut = backing.read(&exposure.secret.path, w);
         match &exposure.exposure_type {
             ExposureType::EnvironmentVariable(name) => {
                 let mut buf = Vec::<u8>::new();
-                decrypt_bytes(&mut r, &mut buf, identities).await?;
+                let decrypt_fut = decrypt_bytes(&mut r, &mut buf, identities);
+                let (read_result, decrypt_result) = futures::future::join(read_fut, decrypt_fut).await;
+                read_result?;
+                decrypt_result?;
                 let decrypted_string = String::from_utf8(buf).map_err(|e| {
                     ProcessRunningError::NotValidUTF8(exposure.secret.name.clone(), e)
                 })?;
@@ -158,7 +161,10 @@ where
                     .await
                     .map_err(ProcessRunningError::CreatingTempFile)?;
 
-                decrypt_bytes(&mut r, &mut file, identities).await?;
+                let decrypt_fut = decrypt_bytes(&mut r, &mut file, identities);
+                let (read_result, decrypt_result) = futures::future::join(read_fut, decrypt_fut).await;
+                read_result?;
+                decrypt_result?;
                 if let Some(path) = maybe_path {
                     tokio::fs::symlink(&dest_path, &path)
                         .await

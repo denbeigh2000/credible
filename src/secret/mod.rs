@@ -25,8 +25,8 @@ pub struct Secret {
 pub trait SecretBackingImpl {
     type Error: SecretError;
 
-    async fn read< W: AsyncWrite + Send + Unpin>(&self, p: &Path, writer: &mut W) -> Result<(), Self::Error>;
-    async fn write<R: AsyncRead + Send + Unpin>(&self, p: &Path, new_encrypted_content: &mut R) -> Result<(), Self::Error>;
+    async fn read<W: AsyncWrite + Send + Unpin>(&self, p: &Path, writer: W) -> Result<(), Self::Error>;
+    async fn write<R: AsyncRead + Send + Unpin>(&self, p: &Path, new_encrypted_content: R) -> Result<(), Self::Error>;
 }
 
 pub trait SecretError: std::error::Error {}

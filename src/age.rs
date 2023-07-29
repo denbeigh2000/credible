@@ -2,6 +2,7 @@ use std::path::Path;
 
 use age::cli_common::read_identities;
 use age::{Decryptor, Encryptor, Identity, Recipient};
+use futures::io::AsyncWriteExt as FuturesAsyncWriteExt;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::compat::{
     FuturesAsyncReadCompatExt,
@@ -53,7 +54,7 @@ pub fn get_identities<P: AsRef<Path>>(
 
 pub async fn decrypt_bytes<R, W>(
     encrypted_bytes: R,
-    writer: &mut W,
+    mut writer: W,
     identities: &[Box<dyn Identity>],
 ) -> Result<(), DecryptionError>
 where
@@ -74,7 +75,7 @@ where
         .map_err(DecryptionError::DecryptingSecret)?;
 
     let mut comp_reader = reader.compat();
-    tokio::io::copy(&mut comp_reader, writer)
+    tokio::io::copy(&mut comp_reader, &mut writer)
         .await
         .map_err(DecryptionError::WritingSecret)?;
 
@@ -90,7 +91,7 @@ where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
-    let compat_writer = writer.compat_write();
+    let mut compat_writer = writer.compat_write();
     let recipients = public_keys
         .iter()
         .filter_map(|key| parse_recipient(key).ok())
@@ -100,14 +101,19 @@ where
     }
     let mut encrypted_writer = Encryptor::with_recipients(recipients)
         .ok_or(EncryptionError::NoRecipientsFound)?
-        .wrap_async_output(compat_writer)
+        .wrap_async_output(&mut compat_writer)
         .await
         .map_err(EncryptionError::CreatingStream)?
         .compat_write();
 
     tokio::io::copy(&mut unencrypted, &mut encrypted_writer)
-        .await
-        .map_err(EncryptionError::WritingSecret)?;
+         .await
+         .map_err(EncryptionError::WritingSecret)?;
+
+    // NOTE: We explicitly have to downcast and call close() to ensure that the
+    // end file is not truncated
+    let mut inner = encrypted_writer.into_inner();
+    inner.close().await.map_err(EncryptionError::WritingSecret)?;
 
     Ok(())
 }

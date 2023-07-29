@@ -8,8 +8,9 @@ use ::age::Identity;
 use age::{encrypt_bytes, EncryptionError};
 use nix::unistd::{Group, User};
 use serde::Deserialize;
+use tempfile::NamedTempFile;
 use thiserror::Error;
-use tokio::fs::{self, OpenOptions};
+use tokio::fs::{self, File, OpenOptions};
 
 mod builder;
 pub use builder::SecretManagerBuilder;
@@ -26,6 +27,7 @@ pub use secret::{
 mod age;
 
 mod wrappers;
+use tokio::process::Command;
 pub use wrappers::{GroupWrapper, UserWrapper};
 
 #[cfg(target_os = "macos")]
@@ -124,14 +126,14 @@ where
     ) -> Result<(), CreateUpdateSecretError> {
         // TODO: Check to see if this exists?
         let mut data = match source_file {
-            Some(file) => tokio::fs::File::open(file)
+            Some(file) => File::open(file)
                 .await
                 .map_err(CreateUpdateSecretError::ReadSourceData)?,
             None => todo!("Secure tempdir editing"),
         };
 
-        let (mut r, mut w) = tokio_pipe::pipe().map_err(CreateUpdateSecretError::ReadSourceData)?;
-        encrypt_bytes(&mut data, &mut w, &secret.encryption_keys)
+        let (mut r, w) = tokio_pipe::pipe().map_err(CreateUpdateSecretError::ReadSourceData)?;
+        encrypt_bytes(&mut data, w, &secret.encryption_keys)
             .await
             .map_err(CreateUpdateSecretError::EncryptingSecret)?;
         self.backing
@@ -140,6 +142,55 @@ where
             .map_err(|e| CreateUpdateSecretError::WritingToStore(Box::new(e)))?;
 
         Ok(())
+    }
+
+    pub async fn edit(
+        &self,
+        secret_name: &str,
+        editor: &str,
+    ) -> Result<ExitStatus, EditSecretError> {
+        let secret = self
+            .secrets
+            .iter()
+            .find(|s| s.name == secret_name)
+            .ok_or_else(|| EditSecretError::NoSuchSecret(secret_name.to_string()))?;
+        let identities = age::get_identities(&self.private_key_paths)?;
+        let (mut r, w) = tokio_pipe::pipe().map_err(EditSecretError::CreatingPipe)?;
+        // NOTE: It would be nice if this supported creating new files, too
+        self.backing
+            .read(&secret.path, w)
+            .await
+            .map_err(|e| EditSecretError::WritingToStore(Box::new(e)))?;
+        let temp_file = NamedTempFile::new().map_err(EditSecretError::CreatingTempFile)?;
+        let temp_file_path = temp_file.path();
+        // Scope ensures temp file is closed after we write decrypted data
+        {
+            let mut temp_file_handle = File::create(temp_file_path)
+                .await
+                .map_err(EditSecretError::OpeningTempFile)?;
+            age::decrypt_bytes(&mut r, &mut temp_file_handle, &identities).await?;
+        }
+        let editor_result = Command::new(editor)
+            .arg(temp_file_path)
+            .status()
+            .await
+            .map_err(EditSecretError::InvokingEditor)?;
+
+        if !editor_result.success() {
+            return Err(EditSecretError::EditorBadExit(editor_result));
+        }
+
+        let (mut r, w) = tokio_pipe::pipe().map_err(EditSecretError::CreatingPipe)?;
+        let mut temp_file_handle = File::open(temp_file_path)
+            .await
+            .map_err(EditSecretError::OpeningTempFile)?;
+        age::encrypt_bytes(&mut temp_file_handle, w, &secret.encryption_keys).await?;
+        self.backing
+            .write(&secret.path, &mut r)
+            .await
+            .map_err(|e| EditSecretError::WritingToStore(Box::new(e)))?;
+
+        Ok(ExitStatus::from_raw(0))
     }
 
     pub async fn mount_secrets(&self) -> Result<ExitStatus, MountSecretError> {
@@ -203,16 +254,18 @@ where
             .find(|s| s.name == secret_name)
             .ok_or_else(|| UploadSecretError::NoSuchSecret(secret_name.to_string()))?;
 
-        let mut file = tokio::fs::File::open(source_file)
+        let mut file = File::open(source_file)
             .await
             .map_err(UploadSecretError::ReadingSourceFile)?;
 
-        let (mut r, mut w) = tokio_pipe::pipe().map_err(UploadSecretError::CreatingPipe)?;
-        age::encrypt_bytes(&mut file, &mut w, &secret.encryption_keys).await?;
-        self.backing
-            .write(&secret.path, &mut r)
-            .await
-            .map_err(|e| UploadSecretError::WritingToStoreFailure(Box::new(e)))?;
+        let (mut r, w) = tokio_pipe::pipe().map_err(UploadSecretError::CreatingPipe)?;
+        let encrypt_fut = age::encrypt_bytes(&mut file, w, &secret.encryption_keys);
+        let backing_fut = self.backing.write(&secret.path, &mut r);
+        // NOTE: Have to break up the call + await so the blocking write in
+        // encrypt_bytes doesn't hang
+        let (encrypt_result, write_result) = futures::future::join(encrypt_fut, backing_fut).await;
+        encrypt_result?;
+        write_result.map_err(|e| UploadSecretError::WritingToStore(Box::new(e)))?;
         drop(file);
 
         Ok(ExitStatus::from_raw(0))
@@ -224,9 +277,9 @@ where
         identities: &[Box<dyn Identity>],
     ) -> Result<PathBuf, MountSecretError> {
         let exp_path = self.secret_root.join(&secret.name);
-        let (mut r, mut w) = tokio_pipe::pipe().map_err(MountSecretError::DataPipeError)?;
+        let (mut r, w) = tokio_pipe::pipe().map_err(MountSecretError::DataPipeError)?;
         self.backing
-            .read(&secret.path, &mut w)
+            .read(&secret.path, w)
             .await
             .map_err(|e| MountSecretError::ReadFromStoreFailure(Box::new(e)))?;
         let mut file = OpenOptions::new()
@@ -296,5 +349,29 @@ pub enum UploadSecretError {
     #[error("error encrypting secret: {0}")]
     EncryptingData(#[from] age::EncryptionError),
     #[error("error writing encrpyted data to store: {0}")]
-    WritingToStoreFailure(Box<dyn std::error::Error>),
+    WritingToStore(Box<dyn std::error::Error>),
+}
+
+#[derive(Error, Debug)]
+pub enum EditSecretError {
+    #[error("no secret named {0}")]
+    NoSuchSecret(String),
+    #[error("error creating tempfile: {0}")]
+    CreatingTempFile(std::io::Error),
+    #[error("error opening tempfile: {0}")]
+    OpeningTempFile(std::io::Error),
+    #[error("error creating pipe: {0}")]
+    CreatingPipe(std::io::Error),
+    #[error("error fetching existing secret from store: {0}")]
+    FetchingFromStore(Box<dyn std::error::Error>),
+    #[error("error decrypting existing secret: {0}")]
+    DecryptingSecret(#[from] age::DecryptionError),
+    #[error("error encrypting updated secret: {0}")]
+    EncryptingSecret(#[from] age::EncryptionError),
+    #[error("error uploading updated secret: {0}")]
+    WritingToStore(Box<dyn std::error::Error>),
+    #[error("error invoking editor: {0}")]
+    InvokingEditor(std::io::Error),
+    #[error("editor exited with non-success status: {0}")]
+    EditorBadExit(ExitStatus),
 }

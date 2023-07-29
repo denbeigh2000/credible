@@ -10,7 +10,7 @@ use age_flake_tool::{
     SecretManagerBuilder,
     SecretManagerConfig,
     UploadSecretError,
-    UserWrapper,
+    UserWrapper, EditSecretError,
 };
 use clap::{Parser, Subcommand};
 use thiserror::Error;
@@ -36,7 +36,7 @@ struct CliParams {
 #[derive(Subcommand, Debug)]
 enum Actions {
     Mount {},
-    Edit { secret_name: String },
+    Edit(EditCommandArgs),
     RunCommand(RunCommandArgs),
     Upload(UploadCommandArgs),
 }
@@ -50,10 +50,17 @@ struct RunCommandArgs {
 
 #[derive(clap::Args, Debug)]
 struct UploadCommandArgs {
+    secret_name: String,
+
+    source_file: PathBuf,
+}
+
+#[derive(clap::Args, Debug)]
+struct EditCommandArgs {
+    #[arg(short, long, env = "EDITOR")]
+    editor: String,
     #[arg(short, long, env)]
     secret_name: String,
-    #[arg(short, long, env)]
-    source_file: PathBuf,
 }
 
 #[derive(Debug, Error)]
@@ -70,6 +77,8 @@ enum MainError {
     RunningProcess(#[from] ProcessRunningError),
     #[error("uploading secret: {0}")]
     UploadingSecret(#[from] UploadSecretError),
+    #[error("editing secret: {0}")]
+    EditingSecret(#[from] EditSecretError),
 }
 
 async fn real_main() -> Result<(), MainError> {
@@ -96,7 +105,7 @@ async fn real_main() -> Result<(), MainError> {
 
     match args.action {
         Actions::Mount {} => manager.mount_secrets().await?,
-        Actions::Edit { secret_name: _ } => todo!(),
+        Actions::Edit(args) => manager.edit(&args.secret_name, &args.editor).await?,
         Actions::RunCommand(args) => manager.run_command(&args.cmd, &args.mount).await?,
         Actions::Upload(args) => manager.upload(&args.secret_name, &args.source_file).await?,
     };
