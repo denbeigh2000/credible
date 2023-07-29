@@ -113,29 +113,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "age-flake-tool"
-version = "0.1.0"
-dependencies = [
- "age",
- "async-trait",
- "aws-config",
- "aws-sdk-s3",
- "block-utils",
- "clap",
- "futures",
- "lazy_static",
- "nix",
- "serde",
- "serde_json",
- "serde_with",
- "tempfile",
- "thiserror",
- "tokio",
- "tokio-pipe",
- "tokio-util",
-]
-
-[[package]]
 name = "aho-corasick"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -930,6 +907,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b540bd8bc810d3885c6ea91e2018302f68baba2129ab3e88f32389ee9370880d"
 dependencies = [
  "cfg-if",
+]
+
+[[package]]
+name = "credible"
+version = "0.0.0"
+dependencies = [
+ "age",
+ "async-trait",
+ "aws-config",
+ "aws-sdk-s3",
+ "block-utils",
+ "clap",
+ "futures",
+ "lazy_static",
+ "nix",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-pipe",
+ "tokio-util",
 ]
 
 [[package]]

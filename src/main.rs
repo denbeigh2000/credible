@@ -1,8 +1,8 @@
 use std::fs;
 use std::path::PathBuf;
 
-use age_flake_tool::BackingConfig::S3;
-use age_flake_tool::{
+use credible::BackingConfig::S3;
+use credible::{
     ExposedSecretConfig,
     GroupWrapper,
     MountSecretError,
