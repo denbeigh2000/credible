@@ -6,9 +6,11 @@ use age_flake_tool::{
     ExposedSecretConfig,
     GroupWrapper,
     MountSecretError,
+    ProcessRunningError,
     SecretManagerBuilder,
     SecretManagerConfig,
-    UserWrapper, ProcessRunningError,
+    UploadSecretError,
+    UserWrapper,
 };
 use clap::{Parser, Subcommand};
 use thiserror::Error;
@@ -36,6 +38,7 @@ enum Actions {
     Mount {},
     Edit { secret_name: String },
     RunCommand(RunCommandArgs),
+    Upload(UploadCommandArgs),
 }
 
 #[derive(clap::Args, Debug)]
@@ -43,6 +46,14 @@ struct RunCommandArgs {
     cmd: Vec<String>,
     #[clap(long, short)]
     mount: Vec<ExposedSecretConfig>,
+}
+
+#[derive(clap::Args, Debug)]
+struct UploadCommandArgs {
+    #[arg(short, long, env)]
+    secret_name: String,
+    #[arg(short, long, env)]
+    source_file: PathBuf,
 }
 
 #[derive(Debug, Error)]
@@ -57,6 +68,8 @@ enum MainError {
     MountingSecrets(#[from] MountSecretError),
     #[error("running subcommand: {0}")]
     RunningProcess(#[from] ProcessRunningError),
+    #[error("uploading secret: {0}")]
+    UploadingSecret(#[from] UploadSecretError),
 }
 
 async fn real_main() -> Result<(), MainError> {
@@ -84,9 +97,8 @@ async fn real_main() -> Result<(), MainError> {
     match args.action {
         Actions::Mount {} => manager.mount_secrets().await?,
         Actions::Edit { secret_name: _ } => todo!(),
-        Actions::RunCommand(args) => {
-            manager.run_command(&args.cmd, &args.mount).await?
-        },
+        Actions::RunCommand(args) => manager.run_command(&args.cmd, &args.mount).await?,
+        Actions::Upload(args) => manager.upload(&args.secret_name, &args.source_file).await?,
     };
 
     Ok(())

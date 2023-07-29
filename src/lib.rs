@@ -192,6 +192,32 @@ where
         Ok(status)
     }
 
+    pub async fn upload(
+        &self,
+        secret_name: &str,
+        source_file: &Path,
+    ) -> Result<ExitStatus, UploadSecretError> {
+        let secret = self
+            .secrets
+            .iter()
+            .find(|s| s.name == secret_name)
+            .ok_or_else(|| UploadSecretError::NoSuchSecret(secret_name.to_string()))?;
+
+        let mut file = tokio::fs::File::open(source_file)
+            .await
+            .map_err(UploadSecretError::ReadingSourceFile)?;
+
+        let (mut r, mut w) = tokio_pipe::pipe().map_err(UploadSecretError::CreatingPipe)?;
+        age::encrypt_bytes(&mut file, &mut w, &secret.encryption_keys).await?;
+        self.backing
+            .write(&secret.path, &mut r)
+            .await
+            .map_err(|e| UploadSecretError::WritingToStoreFailure(Box::new(e)))?;
+        drop(file);
+
+        Ok(ExitStatus::from_raw(0))
+    }
+
     async fn write_secret_to_file(
         &self,
         secret: &Secret,
@@ -199,8 +225,7 @@ where
     ) -> Result<PathBuf, MountSecretError> {
         let exp_path = self.secret_root.join(&secret.name);
         let (mut r, mut w) = tokio_pipe::pipe().map_err(MountSecretError::DataPipeError)?;
-        self
-            .backing
+        self.backing
             .read(&secret.path, &mut w)
             .await
             .map_err(|e| MountSecretError::ReadFromStoreFailure(Box::new(e)))?;
@@ -258,4 +283,18 @@ pub enum CreateUpdateSecretError {
     WritingToStore(Box<dyn std::error::Error>),
     #[error("error encrypting secret: {0}")]
     EncryptingSecret(EncryptionError),
+}
+
+#[derive(Error, Debug)]
+pub enum UploadSecretError {
+    #[error("no configured secret with name {0}")]
+    NoSuchSecret(String),
+    #[error("error creating pipe: {0}")]
+    CreatingPipe(std::io::Error),
+    #[error("error reading source file: {0}")]
+    ReadingSourceFile(std::io::Error),
+    #[error("error encrypting secret: {0}")]
+    EncryptingData(#[from] age::EncryptionError),
+    #[error("error writing encrpyted data to store: {0}")]
+    WritingToStoreFailure(Box<dyn std::error::Error>),
 }
