@@ -50,11 +50,9 @@ pub struct RuntimeKey {
 
 #[derive(Deserialize, Debug)]
 pub struct SecretManagerConfig {
-    pub secret_root: PathBuf,
     pub owner_user: UserWrapper,
     pub owner_group: GroupWrapper,
     pub secrets: Vec<Secret>,
-    pub keys: Vec<RuntimeKey>,
     pub private_key_paths: Vec<PathBuf>,
 
     pub backing_config: BackingConfig,
@@ -75,7 +73,6 @@ where
     pub owner_user: User,
     pub owner_group: Group,
     pub secrets: Vec<Secret>,
-    pub keys: Vec<RuntimeKey>,
     pub private_key_paths: Vec<PathBuf>,
 
     pub backing: I,
@@ -102,7 +99,6 @@ where
         owner_user: User,
         owner_group: Group,
         secrets: Vec<Secret>,
-        keys: Vec<RuntimeKey>,
         private_key_paths: Vec<PathBuf>,
         backing: I,
     ) -> Self {
@@ -111,7 +107,6 @@ where
             owner_user,
             owner_group,
             secrets,
-            keys,
             private_key_paths,
             backing,
 

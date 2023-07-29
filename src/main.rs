@@ -17,7 +17,7 @@ use thiserror::Error;
 
 #[derive(Parser, Debug)]
 struct CliParams {
-    #[arg(short, long, env)]
+    #[arg(short, long, env, default_value = "/run/credible.d")]
     secret_root: PathBuf,
 
     #[arg(short, long, env, default_value = "0")]
@@ -94,11 +94,10 @@ async fn real_main() -> Result<(), MainError> {
     };
 
     let manager = SecretManagerBuilder::default()
-        .set_secret_root(config.secret_root)
+        .set_secret_root(args.secret_root)
         .set_owner_user(config.owner_user.into())
         .set_owner_group(config.owner_group.into())
         .set_secrets(config.secrets)
-        .set_keys(config.keys)
         .set_private_key_paths(config.private_key_paths)
         .build(cfg)
         .await;

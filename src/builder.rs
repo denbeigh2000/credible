@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use nix::unistd::{Group, User};
 
-use crate::{IntoSecretBackingImpl, RuntimeKey, Secret, SecretManager};
+use crate::{IntoSecretBackingImpl, Secret, SecretManager};
 use crate::secret::ProcessRunningError;
 
 #[derive(Default)]
@@ -11,7 +11,6 @@ pub struct SecretManagerBuilder {
     owner_user: Option<User>,
     owner_group: Option<Group>,
     secrets: Option<Vec<Secret>>,
-    keys: Option<Vec<RuntimeKey>>,
     private_key_paths: Option<Vec<PathBuf>>,
 }
 
@@ -40,13 +39,6 @@ impl SecretManagerBuilder {
     pub fn set_secrets(self, secrets: Vec<Secret>) -> Self {
         Self {
             secrets: Some(secrets),
-            ..self
-        }
-    }
-
-    pub fn set_keys(self, keys: Vec<RuntimeKey>) -> Self {
-        Self {
-            keys: Some(keys),
             ..self
         }
     }
@@ -89,7 +81,6 @@ impl SecretManagerBuilder {
             self.owner_user.unwrap(),
             self.owner_group.unwrap(),
             self.secrets.unwrap(),
-            self.keys.unwrap(),
             private_key_paths,
             backing,
         )
