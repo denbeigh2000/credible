@@ -51,8 +51,6 @@ pub struct RuntimeKey {
 #[derive(Deserialize, Debug)]
 pub struct SecretManagerConfig {
     pub secrets: Vec<Secret>,
-    pub private_key_paths: Vec<PathBuf>,
-
     pub backing_config: BackingConfig,
 }
 

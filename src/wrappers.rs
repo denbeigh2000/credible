@@ -1,4 +1,4 @@
-use std::{str::FromStr, ops::Deref};
+use std::str::FromStr;
 
 use nix::unistd::{Group, User};
 use serde_with::DeserializeFromStr;

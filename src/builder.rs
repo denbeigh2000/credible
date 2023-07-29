@@ -17,9 +17,9 @@ impl SecretManagerBuilder {
         }
     }
 
-    pub fn set_private_key_paths(self, paths: Vec<PathBuf>) -> Self {
+    pub fn set_private_key_paths(self, paths: Option<Vec<PathBuf>>) -> Self {
         Self {
-            private_key_paths: Some(paths),
+            private_key_paths: paths,
             ..self
         }
     }

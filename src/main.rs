@@ -19,11 +19,14 @@ use thiserror::Error;
 
 #[derive(Parser, Debug)]
 struct CliParams {
-    #[arg(short, long, env, default_value = "/run/credible.d")]
-    secret_root: PathBuf,
-
     #[arg(short, long, env)]
+    /// Path to the configuration file.
     config_file: PathBuf,
+
+    #[arg(short, long, env, value_delimiter = ',')]
+    /// Comma-separated list of local private keys to use for decryption.
+    /// If not provided, $HOME/.ssh/id_rsa and $HOME/.ssh/id_ecsda are checked.
+    private_key_paths: Option<Vec<PathBuf>>,
 
     #[command(subcommand)]
     action: Actions,
@@ -31,10 +34,15 @@ struct CliParams {
 
 #[derive(Subcommand, Debug)]
 enum Actions {
-    Mount(MountArgs),
-    Unmount(MountArgs),
+    /// Mount all secrets in the configuration file on the current system
+    Mount(Box<MountArgs>),
+    /// Unmount our currently-mounted secrets, if any
+    Unmount(UnmountArgs),
+    /// Edit a currently-managed secret
     Edit(EditCommandArgs),
+    /// Run a command with populated secrets
     RunCommand(RunCommandArgs),
+    /// Upload a new secret to the store
     Upload(UploadCommandArgs),
 }
 
@@ -46,6 +54,7 @@ struct MountArgs {
         env = "CREDIBLE_MOUNT_POINT",
         default_value = "/run/credible.d"
     )]
+    /// System-managed directory to mount secrets in.
     mount_point: PathBuf,
 
     #[clap(
@@ -54,12 +63,17 @@ struct MountArgs {
         env = "CREDIBLE_SECRET_DIR",
         default_value = "/run/credible"
     )]
+    /// Directory users should access secrets from.
     secret_dir: PathBuf,
 
     #[arg(short, long, env = "CREDIBLE_OWNER_USER")]
+    /// Default user to own secrets (if not provided, current user will be
+    /// used)
     user: Option<UserWrapper>,
 
     #[arg(short, long, env = "CREDIBLE_OWNER_GROUP")]
+    /// Default group to own secrets (if not provided, current group will be
+    /// used)
     group: Option<GroupWrapper>,
 }
 
@@ -71,6 +85,7 @@ struct UnmountArgs {
         env = "CREDIBLE_MOUNT_POINT",
         default_value = "/run/credible.d"
     )]
+    /// System-managed directory to mount secrets in.
     mount_point: PathBuf,
 
     #[clap(
@@ -79,14 +94,19 @@ struct UnmountArgs {
         env = "CREDIBLE_SECRET_DIR",
         default_value = "/run/credible"
     )]
+    /// Directory users should access secrets from.
     secret_dir: PathBuf,
 }
 
 #[derive(clap::Args, Debug)]
 struct RunCommandArgs {
-    cmd: Vec<String>,
     #[clap(long, short)]
+    /// Secrets to expose to the executed command, in the following formats:
+    /// - env:secret-name:ENV_VAR_NAME
+    /// - file:secret-name:/path/to/file
     mount: Vec<ExposedSecretConfig>,
+    /// Command arguments to run
+    cmd: Vec<String>,
 }
 
 #[derive(clap::Args, Debug)]
@@ -138,7 +158,7 @@ async fn real_main() -> Result<(), MainError> {
 
     let manager = SecretManagerBuilder::default()
         .set_secrets(config.secrets)
-        .set_private_key_paths(config.private_key_paths)
+        .set_private_key_paths(args.private_key_paths)
         .build(cfg)
         .await;
 
