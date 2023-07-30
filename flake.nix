@@ -14,10 +14,18 @@
   };
 
   outputs = { self, flake-utils, naersk, nixpkgs, rust-overlay }:
-    flake-utils.lib.eachDefaultSystem (system:
+  let
+    nixLibs = import ./nix;
+    overlay = import ./overlay.nix { inherit naersk; };
+  in
+  {
+    nixosModules.default = nixLibs.nixosModule;
+    lib.wrapTool = nixLibs.mkTool;
+    overlays.default = overlay;
+  } // flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = (import nixpkgs) {
-          overlays = [ rust-overlay.overlays.default ];
+          overlays = [ rust-overlay.overlays.default overlay ];
           inherit system;
         };
 
@@ -26,15 +34,15 @@
 
         naersk' = pkgs.callPackage naersk { };
 
-        allPkgs = with pkgs; [ rust-bin.nightly.latest.default rust-analyzer ];
+        allPkgs = with pkgs; [ rust-bin.nightly.latest.default rust-analyzer asciinema ];
         linuxOnlyPkgs = with pkgs; [ libudev-zero pkg-config ];
         darwinOnlyPkgs = with pkgs; [ darwin.apple_sdk.frameworks.Security ];
-
-      in
+in
       rec {
-        # For `nix build` & `nix run`:
-        defaultPackage = naersk'.buildPackage {
-          src = ./.;
+        packages = {
+          # For `nix build` & `nix run`:
+          inherit (pkgs) credible;
+          default = pkgs.credible;
         };
 
         # For `nix develop`:
