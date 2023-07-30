@@ -2,7 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-use credible::BackingConfig::S3;
+use credible::StorageConfig::S3;
 use credible::{
     EditSecretError,
     ExposedSecretConfig,
@@ -151,7 +151,7 @@ async fn real_main() -> Result<(), MainError> {
 
     // TODO: Have some better registry/DI-style pattern here for better
     // extension
-    let cfg = match config.backing_config {
+    let cfg = match config.storage {
         S3(c) => c,
         _ => unimplemented!(),
     };

@@ -5,9 +5,9 @@ use age::Identity;
 use tokio::fs::OpenOptions;
 use tokio::process::Command;
 
-use super::S3SecretBackingError;
+use super::S3SecretStorageError;
 use crate::age::{decrypt_bytes, DecryptionError};
-use crate::{Secret, SecretBackingImpl};
+use crate::{Secret, SecretStorage};
 
 #[derive(Clone, Debug)]
 pub enum ExposureType {
@@ -95,7 +95,7 @@ pub enum ProcessRunningError {
     #[error("couldn't cleanup dangling symlink: {0}")]
     DeletingSymlink(std::io::Error),
     #[error("error fetching secrets from backing store: {0}")]
-    BackingStoreErr(Box<dyn std::error::Error>),
+    FetchingSecretsErr(Box<dyn std::error::Error>),
     #[error("secret {0} was not valid UTF-8 for an environment var: {1}")]
     NotValidUTF8(String, std::string::FromUtf8Error),
     #[error("error running process: {0}")]
@@ -113,8 +113,8 @@ pub async fn run_process<B>(
     backing: &B,
 ) -> Result<ExitStatus, ProcessRunningError>
 where
-    B: SecretBackingImpl,
-    ProcessRunningError: From<<B as SecretBackingImpl>::Error>,
+    B: SecretStorage,
+    ProcessRunningError: From<<B as SecretStorage>::Error>,
 {
     let first = argv.first().ok_or(ProcessRunningError::EmptyCommand)?;
     let mut cmd = Command::new(first);
@@ -197,8 +197,8 @@ where
     Ok(result)
 }
 
-impl From<S3SecretBackingError> for ProcessRunningError {
-    fn from(value: S3SecretBackingError) -> Self {
-        ProcessRunningError::BackingStoreErr(Box::new(value))
+impl From<S3SecretStorageError> for ProcessRunningError {
+    fn from(value: S3SecretStorageError) -> Self {
+        ProcessRunningError::FetchingSecretsErr(Box::new(value))
     }
 }

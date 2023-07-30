@@ -16,13 +16,7 @@ mod builder;
 pub use builder::SecretManagerBuilder;
 mod secret;
 use secret::{run_process, S3Config};
-pub use secret::{
-    ExposedSecretConfig,
-    ProcessRunningError,
-    Secret,
-    SecretBackingImpl,
-    SecretError,
-};
+pub use secret::{ExposedSecretConfig, ProcessRunningError, Secret, SecretError, SecretStorage};
 
 mod age;
 
@@ -51,33 +45,32 @@ pub struct RuntimeKey {
 #[derive(Deserialize, Debug)]
 pub struct SecretManagerConfig {
     pub secrets: Vec<Secret>,
-    #[serde(alias = "backingConfig")]
-    pub backing_config: BackingConfig,
+    pub storage: StorageConfig,
 }
 
 #[derive(Deserialize, Debug)]
 #[serde(tag = "type")]
-pub enum BackingConfig {
+pub enum StorageConfig {
     S3(S3Config),
 }
 
 pub struct SecretManager<E, I>
 where
     E: SecretError,
-    I: SecretBackingImpl,
+    I: SecretStorage,
 {
     pub secrets: Vec<Secret>,
     pub private_key_paths: Vec<PathBuf>,
 
-    pub backing: I,
+    pub storage: I,
 
     _data1: PhantomData<E>,
 }
 
 #[async_trait::async_trait]
-pub trait IntoSecretBackingImpl {
+pub trait IntoSecretStorage {
     type Error: SecretError;
-    type Impl: SecretBackingImpl<Error = Self::Error>;
+    type Impl: SecretStorage<Error = Self::Error>;
 
     async fn build(self) -> Self::Impl;
 }
@@ -85,18 +78,14 @@ pub trait IntoSecretBackingImpl {
 impl<E, I> SecretManager<E, I>
 where
     E: SecretError + 'static + Sized,
-    I: SecretBackingImpl<Error = E>,
-    ProcessRunningError: From<<I as SecretBackingImpl>::Error>,
+    I: SecretStorage<Error = E>,
+    ProcessRunningError: From<<I as SecretStorage>::Error>,
 {
-    pub fn new(
-        secrets: Vec<Secret>,
-        private_key_paths: Vec<PathBuf>,
-        backing: I,
-    ) -> Self {
+    pub fn new(secrets: Vec<Secret>, private_key_paths: Vec<PathBuf>, storage: I) -> Self {
         Self {
             secrets,
             private_key_paths,
-            backing,
+            storage,
 
             _data1: Default::default(),
         }
@@ -119,7 +108,7 @@ where
         encrypt_bytes(&mut data, w, &secret.encryption_keys)
             .await
             .map_err(CreateUpdateSecretError::EncryptingSecret)?;
-        self.backing
+        self.storage
             .write(&secret.path, &mut r)
             .await
             .map_err(|e| CreateUpdateSecretError::WritingToStore(Box::new(e)))?;
@@ -140,7 +129,7 @@ where
         let identities = age::get_identities(&self.private_key_paths)?;
         let (mut r, w) = tokio_pipe::pipe().map_err(EditSecretError::CreatingPipe)?;
         // NOTE: It would be nice if this supported creating new files, too
-        self.backing
+        self.storage
             .read(&secret.path, w)
             .await
             .map_err(|e| EditSecretError::WritingToStore(Box::new(e)))?;
@@ -168,7 +157,7 @@ where
             .await
             .map_err(EditSecretError::OpeningTempFile)?;
         age::encrypt_bytes(&mut temp_file_handle, w, &secret.encryption_keys).await?;
-        self.backing
+        self.storage
             .write(&secret.path, &mut r)
             .await
             .map_err(|e| EditSecretError::WritingToStore(Box::new(e)))?;
@@ -215,7 +204,9 @@ where
 
             if let Some(p) = secret.mount_path.as_ref() {
                 let dest_path = mount_point.join(&secret.name);
-                tokio::fs::symlink(&dest_path, p).await.map_err(MountSecretsError::SymlinkCreationFailure)?;
+                tokio::fs::symlink(&dest_path, p)
+                    .await
+                    .map_err(MountSecretsError::SymlinkCreationFailure)?;
             }
         }
         tokio::fs::symlink(mount_point, secret_dir)
@@ -270,7 +261,7 @@ where
             })
             .collect::<Result<Vec<ExposedSecret>, ProcessRunningError>>()?;
         let identities = age::get_identities(&self.private_key_paths)?;
-        let status = run_process(argv, &full_exposures, &identities, &self.backing).await?;
+        let status = run_process(argv, &full_exposures, &identities, &self.storage).await?;
 
         Ok(status)
     }
@@ -292,7 +283,7 @@ where
 
         let (mut r, w) = tokio_pipe::pipe().map_err(UploadSecretError::CreatingPipe)?;
         let encrypt_fut = age::encrypt_bytes(&mut file, w, &secret.encryption_keys);
-        let backing_fut = self.backing.write(&secret.path, &mut r);
+        let backing_fut = self.storage.write(&secret.path, &mut r);
         // NOTE: Have to break up the call + await so the blocking write in
         // encrypt_bytes doesn't hang
         let (encrypt_result, write_result) = futures::future::join(encrypt_fut, backing_fut).await;
@@ -313,7 +304,7 @@ where
     ) -> Result<PathBuf, MountSecretsError> {
         let exp_path = root.join(&secret.name);
         let (mut r, w) = tokio_pipe::pipe().map_err(MountSecretsError::DataPipeError)?;
-        self.backing
+        self.storage
             .read(&secret.path, w)
             .await
             .map_err(|e| MountSecretsError::ReadFromStoreFailure(Box::new(e)))?;

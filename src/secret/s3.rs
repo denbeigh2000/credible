@@ -10,8 +10,8 @@ use serde::Deserialize;
 use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 
-use crate::secret::{SecretBackingImpl, SecretError};
-use crate::IntoSecretBackingImpl;
+use crate::secret::{SecretStorage, SecretError};
+use crate::IntoSecretStorage;
 
 #[derive(Deserialize, Debug)]
 pub struct S3Config {
@@ -19,20 +19,20 @@ pub struct S3Config {
 }
 
 #[async_trait]
-impl IntoSecretBackingImpl for S3Config {
-    type Error = S3SecretBackingError;
-    type Impl = S3SecretBacking;
+impl IntoSecretStorage for S3Config {
+    type Error = S3SecretStorageError;
+    type Impl = S3SecretStorage;
 
     async fn build(self) -> Self::Impl {
         let config = aws_config::load_from_env().await;
         let client = Client::new(&config);
 
-        S3SecretBacking::new(client, self.bucket)
+        S3SecretStorage::new(client, self.bucket)
     }
 }
 
 #[derive(Error, Debug)]
-pub enum S3SecretBackingError {
+pub enum S3SecretStorageError {
     #[error("error getting object from s3: {0}")]
     GettingObject(#[from] SdkError<GetObjectError>),
     #[error("error writing object to s3: {0}")]
@@ -43,23 +43,23 @@ pub enum S3SecretBackingError {
     CopyingData(#[from] std::io::Error)
 }
 
-impl SecretError for S3SecretBackingError {}
+impl SecretError for S3SecretStorageError {}
 
 #[derive(Clone)]
-pub struct S3SecretBacking {
+pub struct S3SecretStorage {
     client: Client,
     bucket: String,
 }
 
-impl S3SecretBacking {
+impl S3SecretStorage {
     pub fn new(client: Client, bucket: String) -> Self {
         Self { client, bucket }
     }
 }
 
 #[async_trait]
-impl SecretBackingImpl for S3SecretBacking {
-    type Error = S3SecretBackingError;
+impl SecretStorage for S3SecretStorage {
+    type Error = S3SecretStorageError;
 
     async fn read<W: AsyncWrite + Send + Unpin>(&self, key: &Path, mut writer: W) -> Result<(), Self::Error> {
         let path_str = key.to_str().expect("path not representable as str");

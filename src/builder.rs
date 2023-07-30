@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::{IntoSecretBackingImpl, Secret, SecretManager};
+use crate::{IntoSecretStorage, Secret, SecretManager};
 use crate::secret::ProcessRunningError;
 
 #[derive(Default)]
@@ -27,12 +27,12 @@ impl SecretManagerBuilder {
     pub async fn build<I>(
         self,
         imp: I,
-    ) -> SecretManager<<I as IntoSecretBackingImpl>::Error, <I as IntoSecretBackingImpl>::Impl>
+    ) -> SecretManager<<I as IntoSecretStorage>::Error, <I as IntoSecretStorage>::Impl>
     where
-        I: IntoSecretBackingImpl + 'static,
-        <I as IntoSecretBackingImpl>::Error: 'static,
-        <I as IntoSecretBackingImpl>::Impl: 'static,
-        ProcessRunningError: From<<I as IntoSecretBackingImpl>::Error>
+        I: IntoSecretStorage + 'static,
+        <I as IntoSecretStorage>::Error: 'static,
+        <I as IntoSecretStorage>::Impl: 'static,
+        ProcessRunningError: From<<I as IntoSecretStorage>::Error>
     {
         let private_key_paths = self.private_key_paths.unwrap_or_else(|| {
             let home = match std::env::var("HOME") {

@@ -30,7 +30,7 @@ pub struct Secret {
 }
 
 #[async_trait]
-pub trait SecretBackingImpl {
+pub trait SecretStorage {
     type Error: SecretError;
 
     async fn read<W: AsyncWrite + Send + Unpin>(&self, p: &Path, writer: W) -> Result<(), Self::Error>;
