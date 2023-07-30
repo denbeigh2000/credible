@@ -131,7 +131,7 @@ enum MainError {
     #[error("couldn't read config file: {0}")]
     ReadingConfigFile(std::io::Error),
     #[error("invalid config file: {0}")]
-    ParsingConfigFile(#[from] serde_json::Error),
+    ParsingConfigFile(#[from] serde_yaml::Error),
     #[error("mounting secrets: {0}")]
     MountingSecrets(#[from] MountSecretsError),
     #[error("unmounting secrets: {0}")]
@@ -147,7 +147,7 @@ enum MainError {
 async fn real_main() -> Result<(), MainError> {
     let args = CliParams::try_parse()?;
     let data = fs::read(args.config_file).map_err(MainError::ReadingConfigFile)?;
-    let config: SecretManagerConfig = serde_json::from_slice(&data)?;
+    let config: SecretManagerConfig = serde_yaml::from_slice(&data)?;
 
     // TODO: Have some better registry/DI-style pattern here for better
     // extension
