@@ -1,87 +1,21 @@
-use std::path::PathBuf;
+use std::collections::HashMap;
 use std::process::ExitStatus;
 
 use age::Identity;
 use tokio::fs::OpenOptions;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 
 use super::S3SecretStorageError;
 use crate::age::{decrypt_bytes, DecryptionError};
-use crate::{Secret, SecretStorage};
-
-#[derive(Clone, Debug)]
-pub enum ExposureType {
-    EnvironmentVariable(String),
-    File(Option<PathBuf>),
-}
-
-#[derive(Clone, Debug)]
-pub struct ExposedSecretConfig {
-    pub name: String,
-    pub exposure_type: ExposureType,
-}
-
-#[derive(thiserror::Error, Debug)]
-#[error("no such secret in configuration: {0}")]
-pub struct NoSuchSecret(String);
-
-impl ExposedSecretConfig {
-    pub fn into_exposed_secret(self, secrets: &[Secret]) -> Result<ExposedSecret, NoSuchSecret> {
-        let secret = secrets
-            .iter()
-            .find(|i| i.name == self.name)
-            .cloned()
-            .ok_or_else(|| NoSuchSecret(self.name.clone()))?;
-
-        Ok(ExposedSecret {
-            secret,
-            exposure_type: self.exposure_type,
-        })
-    }
-}
-
-#[derive(Clone)]
-pub struct ExposedSecret {
-    pub secret: Secret,
-    pub exposure_type: ExposureType,
-}
-
-impl std::str::FromStr for ExposedSecretConfig {
-    type Err = &'static str;
-
-    // --expose file:tailscaleKey
-    // --expose file:sshKey:/var/ssh/id_rsa
-    // --expose env:tailscaleKey:TAILSCALE_API_KEY
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let parts = s.split(':').collect::<Vec<_>>();
-        if parts.len() > 3 || parts.len() < 2 {
-            return Err("wrong number of path components");
-        }
-
-        let name = parts[1].to_string();
-        let exposure_type = match parts.first().copied() {
-            Some("env") => {
-                if parts.len() != 3 {
-                    return Err("env requires exactly 3 path components");
-                }
-
-                let env_var_key = parts[2];
-                Ok(ExposureType::EnvironmentVariable(env_var_key.to_string()))
-            },
-            Some("file") => {
-                let path = parts.get(2).map(PathBuf::from);
-                Ok(ExposureType::File(path))
-            },
-            Some(_) => Err("only supported flags are env/file"),
-            None => unreachable!("we would have exited above where len < 2"),
-        }?;
-
-        Ok(ExposedSecretConfig { name, exposure_type })
-    }
-}
+use crate::{Exposures, Secret, SecretStorage};
 
 #[derive(thiserror::Error, Debug)]
 pub enum ProcessRunningError {
+    #[error("reading mount config files: {0}")]
+    ReadingMountConfigFiles(std::io::Error),
+    #[error("decoding mount config files: {0}")]
+    DecodingMountConfigFiles(serde_yaml::Error),
     #[error("error decrypting secrets: {0}")]
     SecretDecryptionFailure(#[from] DecryptionError),
     #[error("command string is empty")]
@@ -104,11 +38,14 @@ pub enum ProcessRunningError {
     NoSuchSecret(String),
     #[error("creating data pipe: {0}")]
     CreatingDataPipe(std::io::Error),
+    #[error("writing secret to file {0}")]
+    WritingToFile(std::io::Error),
 }
 
 pub async fn run_process<B>(
     argv: &[String],
-    exposures: &[ExposedSecret],
+    secrets: &HashMap<String, &Secret>,
+    exposures: &Exposures,
     identities: &[Box<dyn Identity>],
     backing: &B,
 ) -> Result<ExitStatus, ProcessRunningError>
@@ -132,49 +69,62 @@ where
             .expect("we should be able to represent all paths as os strs"),
     );
 
-    let mut cleanup_paths: Vec<PathBuf> = Vec::new();
+    let mut buf = Vec::new();
+    for (name, exposure_set) in exposures.files.iter() {
+        let secret = secrets
+            .get(name)
+            .ok_or_else(|| ProcessRunningError::NoSuchSecret(name.to_string()))?;
 
-    for exposure in exposures {
-        let (mut r, w) = tokio_pipe::pipe().map_err(ProcessRunningError::CreatingDataPipe)?;
-        let read_fut = backing.read(&exposure.secret.path, w);
-        match &exposure.exposure_type {
-            ExposureType::EnvironmentVariable(name) => {
-                let mut buf = Vec::<u8>::new();
-                let decrypt_fut = decrypt_bytes(&mut r, &mut buf, identities);
-                let (read_result, decrypt_result) = futures::future::join(read_fut, decrypt_fut).await;
-                read_result?;
-                decrypt_result?;
-                let decrypted_string = String::from_utf8(buf).map_err(|e| {
-                    ProcessRunningError::NotValidUTF8(exposure.secret.name.clone(), e)
-                })?;
-                cmd.env(name, &decrypted_string);
-            }
-            ExposureType::File(maybe_path) => {
-                let dest_path = secret_dir.path().join(&exposure.secret.name);
+        let reader = backing.read(&secret.path).await?;
+        let mut reader = decrypt_bytes(reader, identities).await?;
+        reader
+            .read_to_end(&mut buf)
+            .await
+            .map_err(|e| ProcessRunningError::FetchingSecretsErr(Box::new(e)))?;
 
-                let mut file = OpenOptions::new()
-                    .mode(0o0600)
-                    .create(true)
-                    .truncate(true)
-                    .write(true)
-                    .open(&dest_path)
-                    .await
-                    .map_err(ProcessRunningError::CreatingTempFile)?;
+        for file_spec in exposure_set.iter() {
+            let dest_path = secret_dir.path().join(&secret.name);
 
-                let decrypt_fut = decrypt_bytes(&mut r, &mut file, identities);
-                let (read_result, decrypt_result) = futures::future::join(read_fut, decrypt_fut).await;
-                read_result?;
-                decrypt_result?;
-                if let Some(path) = maybe_path {
-                    tokio::fs::symlink(&dest_path, &path)
-                        .await
-                        .map_err(ProcessRunningError::CreatingSymlink)?;
+            let mut file = OpenOptions::new()
+                .mode(0o0600)
+                .create(true)
+                .truncate(true)
+                .write(true)
+                .open(&dest_path)
+                .await
+                .map_err(ProcessRunningError::CreatingTempFile)?;
 
-                    cleanup_paths.push(path.clone());
-                }
-            }
+            file.write_all(&buf)
+                .await
+                .map_err(ProcessRunningError::WritingToFile)?;
+
+            tokio::fs::symlink(&dest_path, &file_spec.path)
+                .await
+                .map_err(ProcessRunningError::CreatingSymlink)?;
+
+            buf.truncate(0);
         }
     }
+
+    let mut buf = String::new();
+    for (name, exposure_set) in exposures.envs.iter() {
+        let secret = secrets
+            .get(name)
+            .ok_or_else(|| ProcessRunningError::NoSuchSecret(name.to_string()))?;
+
+        let reader = backing.read(&secret.path).await?;
+        let mut reader = decrypt_bytes(reader, identities).await?;
+        reader
+            .read_to_string(&mut buf)
+            .await
+            .map_err(|e| ProcessRunningError::FetchingSecretsErr(Box::new(e)))?;
+        for env_spec in exposure_set.iter() {
+            cmd.env(&env_spec.name, &buf);
+        }
+
+        buf.truncate(0);
+    }
+
     let result = cmd
         .status()
         .await
@@ -182,16 +132,18 @@ where
     drop(secret_dir);
 
     // Clean up dangling symlinks
-    for path in cleanup_paths {
-        if let Err(e) = tokio::fs::remove_file(path)
-            .await
-            .map_err(ProcessRunningError::DeletingSymlink)
-        {
-            // Failure to delete these isn't worth returning an error, because
-            // these are just vanity symlinks that were pointing to our
-            // now-deleted temp dir
-            eprintln!("error cleaning up symlink: {e}");
-        };
+    for exposure_set in exposures.files.values() {
+        for spec in exposure_set.iter() {
+            if let Err(e) = tokio::fs::remove_file(&spec.path)
+                .await
+                .map_err(ProcessRunningError::DeletingSymlink)
+            {
+                // Failure to delete these isn't worth returning an error, because
+                // these are just vanity symlinks that were pointing to our
+                // now-deleted temp dir
+                eprintln!("error cleaning up symlink: {e}");
+            };
+        }
     }
 
     Ok(result)

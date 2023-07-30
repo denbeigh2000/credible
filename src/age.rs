@@ -2,7 +2,6 @@ use std::path::Path;
 
 use age::cli_common::read_identities;
 use age::{Decryptor, Encryptor, Identity, Recipient};
-use futures::io::AsyncWriteExt as FuturesAsyncWriteExt;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::compat::{
     FuturesAsyncReadCompatExt,
@@ -10,6 +9,8 @@ use tokio_util::compat::{
     TokioAsyncReadCompatExt,
     TokioAsyncWriteCompatExt,
 };
+
+use crate::util::{BoxedAsyncReader, BoxedAsyncWriter};
 
 #[derive(thiserror::Error, Debug)]
 pub enum EncryptionError {
@@ -52,14 +53,12 @@ pub fn get_identities<P: AsRef<Path>>(
     read_identities(path_strings, None).map_err(DecryptionError::ReadingSecretKey)
 }
 
-pub async fn decrypt_bytes<R, W>(
+pub async fn decrypt_bytes<R>(
     encrypted_bytes: R,
-    mut writer: W,
     identities: &[Box<dyn Identity>],
-) -> Result<(), DecryptionError>
+) -> Result<BoxedAsyncReader, DecryptionError>
 where
-    R: AsyncRead + Unpin + Sized,
-    W: AsyncWrite + Unpin + Sized,
+    R: AsyncRead + Unpin + Sized + 'static,
 {
     let decryptor = match Decryptor::new_async(encrypted_bytes.compat())
         .await
@@ -72,26 +71,22 @@ where
     let key_iter = identities.iter().map(|i| i.as_ref() as &dyn Identity);
     let reader = decryptor
         .decrypt_async(key_iter)
-        .map_err(DecryptionError::DecryptingSecret)?;
+        .map_err(DecryptionError::DecryptingSecret)?
+        .compat();
 
-    let mut comp_reader = reader.compat();
-    tokio::io::copy(&mut comp_reader, &mut writer)
-        .await
-        .map_err(DecryptionError::WritingSecret)?;
-
-    Ok(())
+    Ok(BoxedAsyncReader::from_async_read(reader))
 }
 
-pub async fn encrypt_bytes<R, W>(
-    mut unencrypted: R,
+// NOTE: Due to limitations in the age library, we have to explicitly call
+// shutdown() on this the returned AsyncWriter
+pub async fn encrypt_bytes<W>(
     writer: W,
     public_keys: &[String],
-) -> Result<(), EncryptionError>
+) -> Result<BoxedAsyncWriter, EncryptionError>
 where
-    R: AsyncRead + Unpin,
-    W: AsyncWrite + Unpin,
+    W: AsyncWrite + Unpin + 'static
 {
-    let mut compat_writer = writer.compat_write();
+    let compat_writer = writer.compat_write();
     let recipients = public_keys
         .iter()
         .filter_map(|key| parse_recipient(key).ok())
@@ -99,30 +94,19 @@ where
     if recipients.is_empty() {
         return Err(EncryptionError::NoRecipientsFound);
     }
-    let mut encrypted_writer = Encryptor::with_recipients(recipients)
+    let encrypted_writer = Encryptor::with_recipients(recipients)
         .ok_or(EncryptionError::NoRecipientsFound)?
-        .wrap_async_output(&mut compat_writer)
+        .wrap_async_output(compat_writer)
         .await
         .map_err(EncryptionError::CreatingStream)?
         .compat_write();
 
-    tokio::io::copy(&mut unencrypted, &mut encrypted_writer)
-         .await
-         .map_err(EncryptionError::WritingSecret)?;
-
-    // NOTE: We explicitly have to downcast and call close() to ensure that the
-    // end file is not truncated
-    let mut inner = encrypted_writer.into_inner();
-    inner.close().await.map_err(EncryptionError::WritingSecret)?;
-
-    Ok(())
+    Ok(BoxedAsyncWriter::from_async_write(encrypted_writer))
 }
 
 // [Adapted from str4d/rage (ASL-2.0)](
 // https://github.com/str4d/rage/blob/85c0788dc511f1410b4c1811be6b8904d91f85db/rage/src/bin/rage/main.rs)
-fn parse_recipient(
-    s: &str,
-) -> Result<Box<dyn Recipient + Send>, EncryptionError> {
+fn parse_recipient(s: &str) -> Result<Box<dyn Recipient + Send>, EncryptionError> {
     if let Ok(pk) = s.parse::<age::x25519::Recipient>() {
         Ok(Box::new(pk))
     } else if let Ok(pk) = s.parse::<age::ssh::Recipient>() {

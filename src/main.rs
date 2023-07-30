@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 use credible::StorageConfig::S3;
 use credible::{
+    CliExposureSpec,
     EditSecretError,
-    ExposedSecretConfig,
     GroupWrapper,
     MountSecretsError,
     ProcessRunningError,
@@ -76,6 +76,14 @@ struct MountArgs {
     /// Default group to own secrets (if not provided, current group will be
     /// used)
     group: Option<GroupWrapper>,
+
+    /// Secrets to expose to the executed command, in the following format:
+    /// - file:secret-name:/path/to/file
+    #[arg(long)]
+    mount: Vec<CliExposureSpec>,
+    /// Specify YAML files to load exposure specs from
+    #[arg(long)]
+    mount_config: Vec<PathBuf>,
 }
 
 #[derive(clap::Args, Debug)]
@@ -105,7 +113,11 @@ struct RunCommandArgs {
     /// Secrets to expose to the executed command, in the following formats:
     /// - env:secret-name:ENV_VAR_NAME
     /// - file:secret-name:/path/to/file
-    mount: Vec<ExposedSecretConfig>,
+    #[arg(long)]
+    mount: Vec<CliExposureSpec>,
+    /// Specify YAML files to load exposure specs from
+    #[arg(long)]
+    mount_config: Vec<PathBuf>,
     /// Command arguments to run
     cmd: Vec<String>,
 }
@@ -192,7 +204,7 @@ async fn real_main() -> Result<(), MainError> {
         }
         Actions::Unmount(args) => manager.unmount(&args.mount_point, &args.secret_dir).await?,
         Actions::Edit(args) => manager.edit(&args.secret_name, &args.editor).await?,
-        Actions::RunCommand(args) => manager.run_command(&args.cmd, &args.mount).await?,
+        Actions::RunCommand(args) => manager.run_command(&args.cmd, args.mount, &args.mount_config).await?,
         Actions::Upload(args) => manager.upload(&args.secret_name, &args.source_file).await?,
     };
 

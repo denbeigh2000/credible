@@ -2,8 +2,9 @@ use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use serde::Deserialize;
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::AsyncRead;
 
+use crate::util::BoxedAsyncReader;
 use crate::wrappers::{GroupWrapper, UserWrapper};
 
 mod s3;
@@ -11,6 +12,9 @@ pub use s3::*;
 
 mod process;
 pub use process::*;
+
+mod exposures;
+pub use exposures::*;
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct Secret {
@@ -33,8 +37,12 @@ pub struct Secret {
 pub trait SecretStorage {
     type Error: SecretError;
 
-    async fn read<W: AsyncWrite + Send + Unpin>(&self, p: &Path, writer: W) -> Result<(), Self::Error>;
-    async fn write<R: AsyncRead + Send + Unpin>(&self, p: &Path, new_encrypted_content: R) -> Result<(), Self::Error>;
+    async fn read(&self, p: &Path) -> Result<BoxedAsyncReader, Self::Error>;
+    async fn write<R: AsyncRead + Send + Unpin>(
+        &self,
+        p: &Path,
+        new_encrypted_content: R,
+    ) -> Result<(), Self::Error>;
 }
 
 pub trait SecretError: std::error::Error {}

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
@@ -15,14 +15,24 @@ use tokio::fs::{self, File, OpenOptions};
 mod builder;
 pub use builder::SecretManagerBuilder;
 mod secret;
-use secret::{run_process, S3Config};
-pub use secret::{ExposedSecretConfig, ProcessRunningError, Secret, SecretError, SecretStorage};
+use secret::{run_process, ExposureSpec, S3Config};
+pub use secret::{
+    CliExposureSpec,
+    Exposures,
+    ProcessRunningError,
+    Secret,
+    SecretError,
+    SecretStorage,
+};
 
 mod age;
 
 mod wrappers;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 pub use wrappers::{GroupWrapper, UserWrapper};
+
+pub(crate) mod util;
 
 #[cfg(target_os = "macos")]
 mod darwin;
@@ -33,8 +43,6 @@ use darwin::*;
 mod linux;
 #[cfg(target_os = "linux")]
 use linux::*;
-
-use crate::secret::ExposedSecret;
 
 #[derive(Deserialize, Debug)]
 pub struct RuntimeKey {
@@ -105,13 +113,18 @@ where
         };
 
         let (mut r, w) = tokio_pipe::pipe().map_err(CreateUpdateSecretError::ReadSourceData)?;
-        encrypt_bytes(&mut data, w, &secret.encryption_keys)
+        let mut writer = encrypt_bytes(w, &secret.encryption_keys)
             .await
             .map_err(CreateUpdateSecretError::EncryptingSecret)?;
-        self.storage
-            .write(&secret.path, &mut r)
-            .await
-            .map_err(|e| CreateUpdateSecretError::WritingToStore(Box::new(e)))?;
+        let upload_fut = self.storage.write(&secret.path, &mut r);
+
+        let copy_fut = tokio::io::copy(&mut data, &mut writer);
+
+        let (upload_result, copy_result) = futures::future::join(upload_fut, copy_fut).await;
+        copy_result.map_err(|e| CreateUpdateSecretError::WritingToStore(Box::new(e)))?;
+        upload_result.map_err(|e| CreateUpdateSecretError::WritingToStore(Box::new(e)))?;
+
+        let _ = writer.shutdown().await;
 
         Ok(())
     }
@@ -127,10 +140,10 @@ where
             .find(|s| s.name == secret_name)
             .ok_or_else(|| EditSecretError::NoSuchSecret(secret_name.to_string()))?;
         let identities = age::get_identities(&self.private_key_paths)?;
-        let (mut r, w) = tokio_pipe::pipe().map_err(EditSecretError::CreatingPipe)?;
         // NOTE: It would be nice if this supported creating new files, too
-        self.storage
-            .read(&secret.path, w)
+        let reader = self
+            .storage
+            .read(&secret.path)
             .await
             .map_err(|e| EditSecretError::WritingToStore(Box::new(e)))?;
         let temp_file = NamedTempFile::new().map_err(EditSecretError::CreatingTempFile)?;
@@ -140,7 +153,10 @@ where
             let mut temp_file_handle = File::create(temp_file_path)
                 .await
                 .map_err(EditSecretError::OpeningTempFile)?;
-            age::decrypt_bytes(&mut r, &mut temp_file_handle, &identities).await?;
+            let mut reader = age::decrypt_bytes(reader, &identities).await?;
+            tokio::io::copy(&mut reader, &mut temp_file_handle)
+                .await
+                .map_err(EditSecretError::OpeningTempFile)?;
         }
         let editor_result = Command::new(editor)
             .arg(temp_file_path)
@@ -156,11 +172,17 @@ where
         let mut temp_file_handle = File::open(temp_file_path)
             .await
             .map_err(EditSecretError::OpeningTempFile)?;
-        age::encrypt_bytes(&mut temp_file_handle, w, &secret.encryption_keys).await?;
-        self.storage
-            .write(&secret.path, &mut r)
-            .await
-            .map_err(|e| EditSecretError::WritingToStore(Box::new(e)))?;
+        let mut writer = age::encrypt_bytes(w, &secret.encryption_keys).await?;
+        let upload_fut = self.storage.write(&secret.path, &mut r);
+
+        let copy_fut = tokio::io::copy(&mut temp_file_handle, &mut writer);
+
+        let (upload_result, copy_result) = futures::future::join(upload_fut, copy_fut).await;
+
+        upload_result.map_err(|e| EditSecretError::WritingToStore(Box::new(e)))?;
+        copy_result.map_err(|e| EditSecretError::WritingToStore(Box::new(e)))?;
+        // Necessary to call on age encryption methods
+        let _ = writer.shutdown().await;
 
         Ok(ExitStatus::from_raw(0))
     }
@@ -240,28 +262,42 @@ where
     pub async fn run_command(
         &self,
         argv: &[String],
-        exposures: &[ExposedSecretConfig],
+        exposure_flags: Vec<CliExposureSpec>,
+        config_files: &[PathBuf],
     ) -> Result<ExitStatus, ProcessRunningError> {
         let secrets_map = self.secrets.iter().fold(HashMap::new(), |mut acc, x| {
             acc.insert(x.name.clone(), x);
             acc
         });
-        let full_exposures = exposures
-            .iter()
-            .map(|e| match secrets_map.get(&e.name) {
-                Some(secret) => {
-                    let secret = (*secret).clone();
-                    let exposure_type = e.exposure_type.clone();
-                    Ok(ExposedSecret {
-                        secret,
-                        exposure_type,
-                    })
-                }
-                None => Err(ProcessRunningError::NoSuchSecret(e.name.clone())),
-            })
-            .collect::<Result<Vec<ExposedSecret>, ProcessRunningError>>()?;
+        let mut exposures = Exposures::default();
+        for path in config_files {
+            let mut f = File::open(&path)
+                .await
+                .map_err(ProcessRunningError::ReadingMountConfigFiles)?;
+            let mut buf = Vec::new();
+            f.read_to_end(&mut buf)
+                .await
+                .map_err(ProcessRunningError::ReadingMountConfigFiles)?;
+            let data: HashMap<String, HashSet<ExposureSpec>> = serde_yaml::from_slice(&buf)
+                .map_err(ProcessRunningError::DecodingMountConfigFiles)?;
+            exposures.add_config(data);
+        }
+
+        let mut cli_exposure_map: HashMap<String, HashSet<ExposureSpec>> = HashMap::new();
+        for exposure in exposure_flags {
+            let (name, exp) = exposure.into();
+            match cli_exposure_map.get_mut(&name) {
+                Some(v) => v.insert(exp),
+                None => cli_exposure_map
+                    .insert(name, HashSet::from([exp]))
+                    .is_some(),
+            };
+        }
+        exposures.add_config(cli_exposure_map);
+
         let identities = age::get_identities(&self.private_key_paths)?;
-        let status = run_process(argv, &full_exposures, &identities, &self.storage).await?;
+        let status =
+            run_process(argv, &secrets_map, &exposures, &identities, &self.storage).await?;
 
         Ok(status)
     }
@@ -282,13 +318,17 @@ where
             .map_err(UploadSecretError::ReadingSourceFile)?;
 
         let (mut r, w) = tokio_pipe::pipe().map_err(UploadSecretError::CreatingPipe)?;
-        let encrypt_fut = age::encrypt_bytes(&mut file, w, &secret.encryption_keys);
-        let backing_fut = self.storage.write(&secret.path, &mut r);
+        let mut writer = age::encrypt_bytes(w, &secret.encryption_keys).await?;
+
+        let storage_fut = self.storage.write(&secret.path, &mut r);
+
+        let copy_fut = tokio::io::copy(&mut file, &mut writer);
         // NOTE: Have to break up the call + await so the blocking write in
         // encrypt_bytes doesn't hang
-        let (encrypt_result, write_result) = futures::future::join(encrypt_fut, backing_fut).await;
-        encrypt_result?;
-        write_result.map_err(|e| UploadSecretError::WritingToStore(Box::new(e)))?;
+        let (storage_result, copy_result) = futures::future::join(storage_fut, copy_fut).await;
+        copy_result.map_err(|e| UploadSecretError::WritingToStore(Box::new(e)))?;
+        storage_result.map_err(|e| UploadSecretError::WritingToStore(Box::new(e)))?;
+        let _ = writer.shutdown().await;
         drop(file);
 
         Ok(ExitStatus::from_raw(0))
@@ -303,9 +343,9 @@ where
         group: nix::unistd::Gid,
     ) -> Result<PathBuf, MountSecretsError> {
         let exp_path = root.join(&secret.name);
-        let (mut r, w) = tokio_pipe::pipe().map_err(MountSecretsError::DataPipeError)?;
-        self.storage
-            .read(&secret.path, w)
+        let reader = self
+            .storage
+            .read(&secret.path)
             .await
             .map_err(|e| MountSecretsError::ReadFromStoreFailure(Box::new(e)))?;
         let mut file = OpenOptions::new()
@@ -317,7 +357,10 @@ where
             .await
             .map_err(MountSecretsError::CreatingFilesFailure)?;
 
-        age::decrypt_bytes(&mut r, &mut file, identities).await?;
+        let mut reader = age::decrypt_bytes(reader, identities).await?;
+        tokio::io::copy(&mut reader, &mut file)
+            .await
+            .map_err(|e| MountSecretsError::ReadFromStoreFailure(Box::new(e)))?;
         drop(file);
         nix::unistd::chown(&exp_path, Some(owner), Some(group))
             .map_err(MountSecretsError::PermissionSettingFailure)?;
