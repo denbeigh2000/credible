@@ -20,8 +20,9 @@ use thiserror::Error;
 #[derive(Parser, Debug)]
 struct CliParams {
     #[arg(short, long, env = "CREDIBLE_CONFIG_FILE")]
-    /// Path to the configuration file.
-    config_file: PathBuf,
+    /// Path to the configuration file. If not provided, will search upward for
+    /// files named credible.yaml.
+    config_file: Option<PathBuf>,
 
     #[arg(short, long, env = "CREDIBLE_PRIVATE_KEY_PATHS", value_delimiter = ',')]
     /// Comma-separated list of local private keys to use for decryption.
@@ -128,6 +129,8 @@ struct EditCommandArgs {
 enum MainError {
     #[error("{0}")]
     ParsingCliArgs(#[from] clap::Error),
+    #[error("no config file given, and no credible.yaml found")]
+    NoConfigFile,
     #[error("couldn't read config file: {0}")]
     ReadingConfigFile(std::io::Error),
     #[error("invalid config file: {0}")]
@@ -144,9 +147,28 @@ enum MainError {
     EditingSecret(#[from] EditSecretError),
 }
 
+fn find_config_file() -> Option<PathBuf> {
+    let mut directory = std::env::current_dir().ok()?;
+    loop {
+        let candidate = directory.join("credible.yaml");
+        if candidate.exists() {
+            return Some(candidate);
+        }
+
+        match directory.parent() {
+            None => return None,
+            Some(p) => directory = p.to_owned(),
+        }
+    }
+}
+
 async fn real_main() -> Result<(), MainError> {
     let args = CliParams::try_parse()?;
-    let data = fs::read(args.config_file).map_err(MainError::ReadingConfigFile)?;
+    let config_file = args
+        .config_file
+        .or_else(find_config_file)
+        .ok_or(MainError::NoConfigFile)?;
+    let data = fs::read(config_file).map_err(MainError::ReadingConfigFile)?;
     let config: SecretManagerConfig = serde_yaml::from_slice(&data)?;
 
     // TODO: Have some better registry/DI-style pattern here for better
