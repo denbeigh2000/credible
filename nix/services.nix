@@ -49,6 +49,8 @@ in
 
       EnvironmentFile = envFile;
     };
+
+    Install.WantedBy = ["network.target"];
   };
 
   launchd = {
