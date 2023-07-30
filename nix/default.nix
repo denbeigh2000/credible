@@ -6,25 +6,26 @@
 {
   nixosModule = import ./nixos.nix;
   mkTool =
-    { pkgs
+    { name ? "credible"
+    , pkgs
     , secrets
-    , backingConfig
-    , secretDir
-    , secretRoot
-    , user
-    , group
-    , privateKeyPaths
+    , storage
+    , privateKeyPaths ? []
+    , mountPoint ? ""
+    , secretDir ? ""
+    , owner ? ""
+    , group ? ""
     }:
     let
       services = pkgs.callPackage ./services.nix {
-        configFile = { inherit secrets backingConfig; };
-        inherit secretDir secretRoot user group privateKeyPaths;
+        configFile = { inherit secrets storage; };
+        inherit secretDir mountPoint owner group privateKeyPaths;
       };
     in
-    writeShellScriptBin "with-secrets" ''
+    pkgs.writeShellScriptBin name ''
       set -euo pipefail
       ${services.exports};
 
-      ${pkgs.credible}/bin/credible run-command -- "$@"
+      ${pkgs.credible}/bin/credible "$@"
     '';
 }

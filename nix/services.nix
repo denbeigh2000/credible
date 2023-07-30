@@ -3,13 +3,17 @@
 , writeText
 , configFile
 , secretDir
-, secretRoot
+, mountPoint
 , owner
 , group
 , privateKeyPaths
+, gnugrep
+, coreutils
 }:
 
 let
+  inherit (lib) mapAttrsToList concatStringsSep;
+
   mountScript = ''
     if [[ -e "${secretDir}" ]]
     then
@@ -19,17 +23,19 @@ let
     ${credible}/bin/credible mount
   '';
 
-  envrionment = {
-    CREDIBLE_CONFIG_FILE = configFile;
-    CREDIBLE_MOUNT_POINT = secretRoot;
+  writtenConfigFile = writeText "credible.json" (builtins.toJSON configFile);
+
+  environment = {
+    CREDIBLE_CONFIG_FILE = writtenConfigFile;
+    CREDIBLE_MOUNT_POINT = mountPoint;
     CREDIBLE_SECRET_DIR = secretDir;
-    CREDIBLE_OWNER_USER = user;
+    CREDIBLE_OWNER_USER = owner;
     CREDIBLE_OWNER_GROUP = group;
-    CREDIBLE_PRIVATE_KEY_PATHS = lib.concatStringSep "," privateKeyPaths;
+    CREDIBLE_PRIVATE_KEY_PATHS = concatStringsSep "," privateKeyPaths;
   };
 
   kvequals = name: value: "${name}=${value}";
-  makeExport = name: value: "export ${equals name value}";
+  makeExport = name: value: "export ${kvequals name value}";
   exports = concatStringsSep "\n" (mapAttrsToList makeExport environment);
   equals = concatStringsSep "\n" (mapAttrsToList kvequals environment);
 
@@ -57,7 +63,7 @@ in
     script = ''
       set -e
       set -o pipefail
-      export PATH="${pkgs.gnugrep}/bin:${pkgs.coreutils}/bin:@out@/sw/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+      export PATH="${gnugrep}/bin:${coreutils}/bin:@out@/sw/bin:/usr/bin:/bin:/usr/sbin:/sbin"
       ${exports}
 
       ${mountScript}

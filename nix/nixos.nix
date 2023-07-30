@@ -21,7 +21,7 @@ let
 
   configFile = writeText "credible.json" (builtins.toJSON {
     inherit (cfg) secrets;
-    backingConfig = {
+    storage = {
       type = "S3";
       inherit (cfg) bucket;
     };
