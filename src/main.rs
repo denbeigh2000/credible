@@ -79,10 +79,10 @@ struct MountArgs {
 
     /// Secrets to expose to the executed command, in the following format:
     /// - file:secret-name:/path/to/file
-    #[arg(long)]
+    #[arg(long, env = "CREDIBLE_MOUNT_CONFIGS", value_delimiter = ',')]
     mount: Vec<CliExposureSpec>,
     /// Specify YAML files to load exposure specs from
-    #[arg(long)]
+    #[arg(long, env = "CREDIBLE_MOUNT_CONFIG_FILES", value_delimiter = ',')]
     mount_config: Vec<PathBuf>,
 }
 
@@ -113,10 +113,10 @@ struct RunCommandArgs {
     /// Secrets to expose to the executed command, in the following formats:
     /// - env:secret-name:ENV_VAR_NAME
     /// - file:secret-name:/path/to/file
-    #[arg(long)]
+    #[arg(long, env = "CREDIBLE_MOUNT_CONFIGS", value_delimiter = ',')]
     mount: Vec<CliExposureSpec>,
     /// Specify YAML files to load exposure specs from
-    #[arg(long)]
+    #[arg(long, env = "CREDIBLE_MOUNT_CONFIG_FILES", value_delimiter = ',')]
     mount_config: Vec<PathBuf>,
     /// Command arguments to run
     cmd: Vec<String>,
