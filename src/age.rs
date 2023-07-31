@@ -1,8 +1,10 @@
+
 use std::path::Path;
 
 use age::cli_common::read_identities;
 use age::{Decryptor, Encryptor, Identity, Recipient};
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncRead, AsyncWriteExt};
+use tokio::task::JoinHandle;
 use tokio_util::compat::{
     FuturesAsyncReadCompatExt,
     FuturesAsyncWriteCompatExt,
@@ -10,10 +12,20 @@ use tokio_util::compat::{
     TokioAsyncWriteCompatExt,
 };
 
-use crate::util::{BoxedAsyncReader, BoxedAsyncWriter};
+use crate::util::BoxedAsyncReader;
 
 #[derive(thiserror::Error, Debug)]
 pub enum EncryptionError {
+    #[error("error creating data pipe: {0}")]
+    CreatingPipe(std::io::Error),
+    #[error("error spawning read thread: {0}")]
+    SpawningThread(#[from] tokio::task::JoinError),
+    #[error("error reading input data: {0}")]
+    ReadingInput(std::io::Error),
+    #[error("error writing output data: {0}")]
+    WritingOutput(std::io::Error),
+    #[error("error closing output stream: {0}")]
+    ClosingOutput(std::io::Error),
     #[error("error creating encryption stream: {0}")]
     CreatingStream(age::EncryptError),
     #[error("no valid recipients found")]
@@ -21,7 +33,7 @@ pub enum EncryptionError {
     #[error("error writing encrypted secret: {0}")]
     WritingSecret(std::io::Error),
     #[error("error writing encrypted secret to backing store: {0}")]
-    WritingToBackingStore(Box<dyn std::error::Error>),
+    WritingToBackingStore(Box<dyn std::error::Error + Send>),
     #[error("the given public keys weren't valid")]
     InvalidRecipients,
 }
@@ -58,7 +70,7 @@ pub async fn decrypt_bytes<R>(
     identities: &[Box<dyn Identity>],
 ) -> Result<BoxedAsyncReader, DecryptionError>
 where
-    R: AsyncRead + Unpin + Sized + 'static,
+    R: AsyncRead + Unpin + Sized + Send + 'static,
 {
     let decryptor = match Decryptor::new_async(encrypted_bytes.compat())
         .await
@@ -77,16 +89,21 @@ where
     Ok(BoxedAsyncReader::from_async_read(reader))
 }
 
-// NOTE: Due to limitations in the age library, we have to explicitly call
-// shutdown() on this the returned AsyncWriter
-pub async fn encrypt_bytes<W>(
-    writer: W,
+pub async fn encrypt_bytes<R>(
+    mut reader: R,
     public_keys: &[String],
-) -> Result<BoxedAsyncWriter, EncryptionError>
+) -> Result<
+    (
+        BoxedAsyncReader,
+        JoinHandle<Result<(), EncryptionError>>,
+    ),
+    EncryptionError,
+>
 where
-    W: AsyncWrite + Unpin + 'static,
+    R: AsyncRead + Send + Unpin + Send + 'static,
 {
-    let compat_writer = writer.compat_write();
+    let (r, w) = tokio_pipe::pipe().map_err(EncryptionError::CreatingPipe)?;
+    let compat_writer = w.compat_write();
     let recipients = public_keys
         .iter()
         .filter_map(|key| parse_recipient(key).ok())
@@ -94,14 +111,30 @@ where
     if recipients.is_empty() {
         return Err(EncryptionError::NoRecipientsFound);
     }
-    let encrypted_writer = Encryptor::with_recipients(recipients)
+    let mut encrypted_writer = Encryptor::with_recipients(recipients)
         .ok_or(EncryptionError::NoRecipientsFound)?
         .wrap_async_output(compat_writer)
         .await
         .map_err(EncryptionError::CreatingStream)?
         .compat_write();
 
-    Ok(BoxedAsyncWriter::from_async_write(encrypted_writer))
+    // NOTE: We spawn a thread here because AWS' SDK only exposes a
+    // reader-based API, and age only exposes a writer-based API for
+    // encryption, which means otherwise the user has to do this themselves to
+    // avoid blocking.
+    let f = tokio::spawn(async move {
+        tokio::io::copy(&mut reader, &mut encrypted_writer)
+            .await
+            .map_err(EncryptionError::ReadingInput)?;
+        encrypted_writer
+            .shutdown()
+            .await
+            .map_err(EncryptionError::ClosingOutput)?;
+
+        Ok(())
+    });
+
+    Ok((BoxedAsyncReader::from_async_read(r), f))
 }
 
 // [Adapted from str4d/rage (ASL-2.0)](

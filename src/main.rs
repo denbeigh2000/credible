@@ -217,8 +217,17 @@ async fn real_main() -> Result<(), MainError> {
 
 #[tokio::main]
 async fn main() {
-    if let Err(e) = real_main().await {
-        eprintln!("error: {e}");
-        std::process::exit(1);
-    }
+    let code = match real_main().await {
+        Ok(_) => 0,
+        Err(MainError::ParsingCliArgs(e)) => {
+            eprintln!("{e}");
+            1
+        },
+        Err(e) => {
+            eprintln!("error: {e}");
+            1
+        },
+    };
+
+    std::process::exit(code);
 }

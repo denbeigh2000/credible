@@ -10,7 +10,7 @@ use serde::Deserialize;
 use tempfile::NamedTempFile;
 use thiserror::Error;
 use tokio::fs::{self, File, OpenOptions};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 
 mod builder;
@@ -105,26 +105,23 @@ where
         source_file: Option<&Path>,
     ) -> Result<(), CreateUpdateSecretError> {
         // TODO: Check to see if this exists?
-        let mut data = match source_file {
+        let data = match source_file {
             Some(file) => File::open(file)
                 .await
                 .map_err(CreateUpdateSecretError::ReadSourceData)?,
             None => todo!("Secure tempdir editing"),
         };
 
-        let (mut r, w) = tokio_pipe::pipe().map_err(CreateUpdateSecretError::ReadSourceData)?;
-        let mut writer = encrypt_bytes(w, &secret.encryption_keys)
+        let (reader, fut) = encrypt_bytes(data, &secret.encryption_keys)
             .await
             .map_err(CreateUpdateSecretError::EncryptingSecret)?;
-        let upload_fut = self.storage.write(&secret.path, &mut r);
+        self.storage
+            .write(&secret.path, reader)
+            .await
+            .map_err(|e| CreateUpdateSecretError::WritingToStore(Box::new(e)))?;
 
-        let copy_fut = tokio::io::copy(&mut data, &mut writer);
-
-        let (upload_result, copy_result) = futures::future::join(upload_fut, copy_fut).await;
-        copy_result.map_err(|e| CreateUpdateSecretError::WritingToStore(Box::new(e)))?;
-        upload_result.map_err(|e| CreateUpdateSecretError::WritingToStore(Box::new(e)))?;
-
-        let _ = writer.shutdown().await;
+        fut.await
+            .map_err(|e| CreateUpdateSecretError::EncryptingSecret(EncryptionError::SpawningThread(e)))??;
 
         Ok(())
     }
@@ -168,21 +165,18 @@ where
             return Err(EditSecretError::EditorBadExit(editor_result));
         }
 
-        let (mut r, w) = tokio_pipe::pipe().map_err(EditSecretError::CreatingPipe)?;
-        let mut temp_file_handle = File::open(temp_file_path)
+        let temp_file_handle = File::open(temp_file_path)
             .await
             .map_err(EditSecretError::OpeningTempFile)?;
-        let mut writer = age::encrypt_bytes(w, &secret.encryption_keys).await?;
-        let upload_fut = self.storage.write(&secret.path, &mut r);
+        let (reader, fut) = age::encrypt_bytes(temp_file_handle, &secret.encryption_keys).await?;
+        self.storage
+            .write(&secret.path, reader)
+            .await
+            .map_err(|e| EditSecretError::WritingToStore(Box::new(e)))?;
 
-        let copy_fut = tokio::io::copy(&mut temp_file_handle, &mut writer);
-
-        let (upload_result, copy_result) = futures::future::join(upload_fut, copy_fut).await;
-
-        upload_result.map_err(|e| EditSecretError::WritingToStore(Box::new(e)))?;
-        copy_result.map_err(|e| EditSecretError::WritingToStore(Box::new(e)))?;
-        // Necessary to call on age encryption methods
-        let _ = writer.shutdown().await;
+        fut.await
+            .map_err(|e| EditSecretError::EncryptingSecret(EncryptionError::SpawningThread(e)))?
+            .map_err(EditSecretError::EncryptingSecret)?;
 
         Ok(ExitStatus::from_raw(0))
     }
@@ -313,23 +307,19 @@ where
             .find(|s| s.name == secret_name)
             .ok_or_else(|| UploadSecretError::NoSuchSecret(secret_name.to_string()))?;
 
-        let mut file = File::open(source_file)
+        let file = File::open(source_file)
             .await
             .map_err(UploadSecretError::ReadingSourceFile)?;
 
-        let (mut r, w) = tokio_pipe::pipe().map_err(UploadSecretError::CreatingPipe)?;
-        let mut writer = age::encrypt_bytes(w, &secret.encryption_keys).await?;
+        let (reader, handle) = age::encrypt_bytes(file, &secret.encryption_keys).await?;
+        self.storage
+            .write(&secret.path, reader)
+            .await
+            .map_err(|e| UploadSecretError::WritingToStore(Box::new(e)))?;
 
-        let storage_fut = self.storage.write(&secret.path, &mut r);
-
-        let copy_fut = tokio::io::copy(&mut file, &mut writer);
-        // NOTE: Have to break up the call + await so the blocking write in
-        // encrypt_bytes doesn't hang
-        let (storage_result, copy_result) = futures::future::join(storage_fut, copy_fut).await;
-        copy_result.map_err(|e| UploadSecretError::WritingToStore(Box::new(e)))?;
-        storage_result.map_err(|e| UploadSecretError::WritingToStore(Box::new(e)))?;
-        let _ = writer.shutdown().await;
-        drop(file);
+        handle.await
+            .map_err(|e| UploadSecretError::EncryptingData(EncryptionError::SpawningThread(e)))?
+            .map_err(UploadSecretError::EncryptingData)?;
 
         Ok(ExitStatus::from_raw(0))
     }
@@ -412,7 +402,7 @@ pub enum CreateUpdateSecretError {
     #[error("failed to write to backing store: {0}")]
     WritingToStore(Box<dyn std::error::Error>),
     #[error("error encrypting secret: {0}")]
-    EncryptingSecret(EncryptionError),
+    EncryptingSecret(#[from] EncryptionError),
 }
 
 #[derive(Error, Debug)]
