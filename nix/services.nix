@@ -6,6 +6,8 @@
 , mountPoint
 , owner
 , group
+, mountConfigs
+, mountConfigPaths
 , privateKeyPaths
 , gnugrep
 , coreutils
@@ -25,13 +27,17 @@ let
 
   writtenConfigFile = writeText "credible.json" (builtins.toJSON configFile);
 
+  commaJoin = things: concatStringsSep "," things;
+
   environment = {
     CREDIBLE_CONFIG_FILE = writtenConfigFile;
     CREDIBLE_MOUNT_POINT = mountPoint;
     CREDIBLE_SECRET_DIR = secretDir;
     CREDIBLE_OWNER_USER = owner;
     CREDIBLE_OWNER_GROUP = group;
-    CREDIBLE_PRIVATE_KEY_PATHS = concatStringsSep "," privateKeyPaths;
+    CREDIBLE_PRIVATE_KEY_PATHS = commaJoin privateKeyPaths;
+    CREDIBLE_MOUNT_CONFIGS = commaJoin mountConfigs;
+    CREDIBLE_MOUNT_CONFIG_PATHS = commaJoin mountConfigPaths;
   };
 
   kvequals = name: value: "${name}=${value}";

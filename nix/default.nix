@@ -10,16 +10,19 @@
     , pkgs
     , secrets
     , storage
-    , privateKeyPaths ? []
+    , privateKeyPaths ? [ ]
     , mountPoint ? ""
     , secretDir ? ""
     , owner ? ""
     , group ? ""
+    , mountConfigs ? [ ]
+    , mountConfigPaths ? [ ]
     }:
     let
       services = pkgs.callPackage ./services.nix {
         configFile = { inherit secrets storage; };
-        inherit secretDir mountPoint owner group privateKeyPaths;
+        inherit secretDir mountPoint owner group privateKeyPaths mountConfigs
+          mountConfigPaths;
       };
     in
     pkgs.writeShellScriptBin name ''
