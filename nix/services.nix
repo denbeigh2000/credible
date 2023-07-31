@@ -14,7 +14,7 @@
 }:
 
 let
-  inherit (lib) mapAttrsToList concatStringsSep;
+  inherit (lib) mapAttrsToList concatStringsSep optionalString;
 
   mountScript = ''
     if [[ -e "${secretDir}" ]]
@@ -40,8 +40,10 @@ let
     CREDIBLE_MOUNT_CONFIG_PATHS = commaJoin mountConfigPaths;
   };
 
-  kvequals = name: value: "${name}=${value}";
-  makeExport = name: value: "export ${kvequals name value}";
+  shouldAssign = val: !(val == "" || val == [ ]);
+
+  kvequals = name: value: (optionalString (shouldAssign value) "${name}=${value}");
+  makeExport = name: value: (optionalString (shouldAssign value) "export ${kvequals name value}");
   exports = concatStringsSep "\n" (mapAttrsToList makeExport environment);
   equals = concatStringsSep "\n" (mapAttrsToList kvequals environment);
 
@@ -62,7 +64,7 @@ in
       EnvironmentFile = envFile;
     };
 
-    Install.WantedBy = ["network.target"];
+    Install.WantedBy = [ "network.target" ];
   };
 
   launchd = {

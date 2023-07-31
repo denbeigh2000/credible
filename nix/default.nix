@@ -27,7 +27,7 @@
     in
     pkgs.writeShellScriptBin name ''
       set -euo pipefail
-      ${services.exports};
+      ${services.exports}
 
       ${pkgs.credible}/bin/credible "$@"
     '';

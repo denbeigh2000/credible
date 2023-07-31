@@ -82,7 +82,7 @@ struct MountArgs {
     #[arg(long, env = "CREDIBLE_MOUNT_CONFIGS", value_delimiter = ',')]
     mount: Vec<CliExposureSpec>,
     /// Specify YAML files to load exposure specs from
-    #[arg(long, env = "CREDIBLE_MOUNT_CONFIG_FILES", value_delimiter = ',')]
+    #[arg(long, env = "CREDIBLE_MOUNT_CONFIG_PATHS", value_delimiter = ',')]
     mount_config: Vec<PathBuf>,
 }
 
@@ -116,7 +116,7 @@ struct RunCommandArgs {
     #[arg(long, env = "CREDIBLE_MOUNT_CONFIGS", value_delimiter = ',')]
     mount: Vec<CliExposureSpec>,
     /// Specify YAML files to load exposure specs from
-    #[arg(long, env = "CREDIBLE_MOUNT_CONFIG_FILES", value_delimiter = ',')]
+    #[arg(long, env = "CREDIBLE_MOUNT_CONFIG_PATHS", value_delimiter = ',')]
     mount_config: Vec<PathBuf>,
     /// Command arguments to run
     cmd: Vec<String>,
