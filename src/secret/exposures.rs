@@ -84,7 +84,10 @@ impl Exposures {
                     ExposureSpec::Env(env_name) => {
                         match self.envs.get_mut(&name) {
                             Some(v) => v.insert(env_name),
-                            None => self.envs.insert(name.clone(), HashSet::from([env_name])).is_some(),
+                            None => self
+                                .envs
+                                .insert(name.clone(), HashSet::from([env_name]))
+                                .is_some(),
                         };
                     }
 

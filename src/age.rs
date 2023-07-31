@@ -84,7 +84,7 @@ pub async fn encrypt_bytes<W>(
     public_keys: &[String],
 ) -> Result<BoxedAsyncWriter, EncryptionError>
 where
-    W: AsyncWrite + Unpin + 'static
+    W: AsyncWrite + Unpin + 'static,
 {
     let compat_writer = writer.compat_write();
     let recipients = public_keys

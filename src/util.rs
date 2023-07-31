@@ -1,10 +1,9 @@
 use std::pin::Pin;
 
-use tokio::io::AsyncWrite;
-use tokio::io::AsyncRead;
+use tokio::io::{AsyncRead, AsyncWrite};
 
 pub struct BoxedAsyncReader {
-    inner: Box<dyn AsyncRead + Unpin + 'static>
+    inner: Box<dyn AsyncRead + Unpin + 'static>,
 }
 
 impl BoxedAsyncReader {
@@ -27,7 +26,7 @@ impl AsyncRead for BoxedAsyncReader {
 }
 
 pub struct BoxedAsyncWriter {
-    inner: Box<dyn AsyncWrite + Unpin + 'static>
+    inner: Box<dyn AsyncWrite + Unpin + 'static>,
 }
 
 impl BoxedAsyncWriter {
@@ -48,12 +47,18 @@ impl AsyncWrite for BoxedAsyncWriter {
         Pin::new(&mut inner).poll_write(cx, buf)
     }
 
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<std::io::Result<()>> {
+    fn poll_flush(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
         let mut inner = &mut self.inner;
         Pin::new(&mut inner).poll_flush(cx)
     }
 
-    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), std::io::Error>> {
+    fn poll_shutdown(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), std::io::Error>> {
         let mut inner = &mut self.inner;
         Pin::new(&mut inner).poll_shutdown(cx)
     }

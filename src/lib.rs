@@ -5,12 +5,13 @@ use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
 
 use ::age::Identity;
-use age::{encrypt_bytes, EncryptionError};
 use nix::unistd::{Gid, Uid};
 use serde::Deserialize;
 use tempfile::NamedTempFile;
 use thiserror::Error;
 use tokio::fs::{self, File, OpenOptions};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::process::Command;
 
 mod builder;
 pub use builder::SecretManagerBuilder;
@@ -26,10 +27,9 @@ pub use secret::{
 };
 
 mod age;
+use crate::age::{encrypt_bytes, EncryptionError};
 
 mod wrappers;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::process::Command;
 pub use wrappers::{GroupWrapper, UserWrapper};
 
 pub(crate) mod util;

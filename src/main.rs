@@ -204,7 +204,11 @@ async fn real_main() -> Result<(), MainError> {
         }
         Actions::Unmount(args) => manager.unmount(&args.mount_point, &args.secret_dir).await?,
         Actions::Edit(args) => manager.edit(&args.secret_name, &args.editor).await?,
-        Actions::RunCommand(args) => manager.run_command(&args.cmd, args.mount, &args.mount_config).await?,
+        Actions::RunCommand(args) => {
+            manager
+                .run_command(&args.cmd, args.mount, &args.mount_config)
+                .await?
+        }
         Actions::Upload(args) => manager.upload(&args.secret_name, &args.source_file).await?,
     };
 
