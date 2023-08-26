@@ -14,30 +14,22 @@
   };
 
   outputs = { self, flake-utils, naersk, nixpkgs, rust-overlay }:
-  let
-    nixLibs = import ./nix;
-    overlay = import ./overlay.nix { inherit naersk; };
-  in
-  {
-    nixosModules.default = nixLibs.nixosModule;
-    lib.wrapTool = nixLibs.mkTool;
-    overlays.default = overlay;
-  } // flake-utils.lib.eachDefaultSystem (system:
+    let
+      nixLibs = import ./nix;
+      overlay = import ./overlay.nix { inherit naersk; };
+    in
+    {
+      nixosModules.default = nixLibs.nixosModule;
+      lib.wrapTool = nixLibs.mkTool;
+      overlays.default = overlay;
+    } // flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = (import nixpkgs) {
           overlays = [ rust-overlay.overlays.default overlay ];
           inherit system;
         };
-
-        inherit (pkgs) callPackage;
-        inherit (pkgs.stdenvNoCC.hostPlatform) isDarwin isLinux;
-
-        naersk' = pkgs.callPackage naersk { };
-
-        allPkgs = with pkgs; [ rust-bin.nightly.latest.default rust-analyzer asciinema ];
-        linuxOnlyPkgs = with pkgs; [ libudev-zero pkg-config ];
-        darwinOnlyPkgs = with pkgs; [ darwin.apple_sdk.frameworks.Security ];
-in
+        inherit (pkgs) callPackage rust-bin rust-analyzer;
+      in
       rec {
         packages = {
           # For `nix build` & `nix run`:
@@ -47,9 +39,8 @@ in
 
         # For `nix develop`:
         devShell = pkgs.mkShell {
-          nativeBuildInputs = allPkgs
-            ++ (if isLinux then linuxOnlyPkgs else [ ])
-            ++ (if isDarwin then darwinOnlyPkgs else [ ]);
+          packages = [ rust-bin.nightly.latest.default rust-analyzer ];
+          nativeBuildInputs = callPackage ./systemLibs.nix { };
         };
       }
     );

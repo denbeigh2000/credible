@@ -1,10 +1,11 @@
 { naersk }:
 
-final: prev: 
+final: prev:
 
 let
   inherit (prev) callPackage;
-  naersk' = callPackage naersk {};
-in {
-  credible = import ./. { naersk = naersk'; };
+  naersk' = callPackage naersk { };
+in
+{
+  credible = callPackage ./. { naersk = naersk'; };
 }
