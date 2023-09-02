@@ -13,7 +13,7 @@ aws-sdk-s3 = "0.28.0"
 clap = { version = "4.3.12", features = ["derive", "env"] }
 futures = "0.3.28"
 lazy_static = "1.4.0"
-nix = { version = "0.26.2", features = ["user", "fs", "mount"] }
+nix = { version = "0.26.2", features = ["user", "fs", "mount", "time"] }
 serde = { version = "1.0.171", features = ["derive"] }
 serde_with = "3.0.0"
 serde_yaml = "0.9.25"
