@@ -4,6 +4,8 @@ use std::process::Command;
 
 use thiserror::Error;
 
+use crate::process_utils::process_msg;
+
 #[derive(Error, Debug)]
 #[error("failed to check if device mounted: {0}")]
 pub struct CheckMountedError(#[from] io::Error);
@@ -32,13 +34,6 @@ pub enum MountRamfsError {
     NoDeviceFromHdiutil,
 }
 
-fn process_msg(raw: Vec<u8>) -> String {
-    String::from_utf8(raw).unwrap_or_else(|e| {
-        eprintln!("hdiutil returned non-utf8 stderr ({e})");
-        "<Unknown>".to_string()
-    })
-}
-
 pub fn mount_persistent_ramfs(dir: &Path) -> Result<(), MountRamfsError> {
     // 512MB for secrets should be enough for everybody...right?
     let ram_device_name = format!("ram://{}", 2048 * 512);
@@ -51,7 +46,7 @@ pub fn mount_persistent_ramfs(dir: &Path) -> Result<(), MountRamfsError> {
         .map_err(MountRamfsError::CallingSubprocess)?;
 
     if !device_mounted_proc.status.success() {
-        let msg = process_msg(device_mounted_proc.stderr);
+        let msg = process_msg("hdiutil", device_mounted_proc.stderr);
         return Err(MountRamfsError::CreatingRamfs(msg));
     }
 
@@ -69,7 +64,7 @@ pub fn mount_persistent_ramfs(dir: &Path) -> Result<(), MountRamfsError> {
         .output()
         .map_err(MountRamfsError::CallingSubprocess)?;
     if !mount_device_proc.status.success() {
-        let msg = process_msg(mount_device_proc.stderr);
+        let msg = process_msg("newfs_hfs", mount_device_proc.stderr);
         return Err(MountRamfsError::CreatingFilesystem(msg));
     }
 
@@ -83,7 +78,7 @@ pub fn mount_persistent_ramfs(dir: &Path) -> Result<(), MountRamfsError> {
         .output()
         .map_err(MountRamfsError::CallingSubprocess)?;
     if !mount_proc.status.success() {
-        let msg = process_msg(mount_proc.stderr);
+        let msg = process_msg("mount", mount_proc.stderr);
         return Err(MountRamfsError::MountingRamfs(msg));
     }
 

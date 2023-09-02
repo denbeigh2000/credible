@@ -26,6 +26,8 @@ pub use secret::{
     SecretStorage,
 };
 
+mod process_utils;
+
 mod age;
 use crate::age::{encrypt_bytes, EncryptionError};
 
