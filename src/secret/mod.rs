@@ -10,9 +10,6 @@ use crate::wrappers::{GroupWrapper, UserWrapper};
 mod s3;
 pub use s3::*;
 
-mod process;
-pub use process::*;
-
 mod exposures;
 pub use exposures::*;
 

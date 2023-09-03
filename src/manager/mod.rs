@@ -9,7 +9,7 @@ use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 
-use crate::age::{decrypt_bytes, encrypt_bytes, get_identities, EncryptionError};
+use crate::age::{decrypt_bytes, encrypt_bytes, get_identities};
 use crate::process::{run_process, ProcessRunningError};
 use crate::secret::ExposureSpec;
 use crate::{CliExposureSpec, Exposures, Secret, SecretError, SecretStorage};
