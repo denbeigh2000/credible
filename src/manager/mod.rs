@@ -60,17 +60,13 @@ where
             None => todo!("Secure tempdir editing"),
         };
 
-        let (reader, fut) = encrypt_bytes(data, &secret.encryption_keys)
+        let encrypted_data = encrypt_bytes(data, &secret.encryption_keys)
             .await
             .map_err(CreateUpdateSecretError::EncryptingSecret)?;
         self.storage
-            .write(&secret.path, reader)
+            .write(&secret.path, encrypted_data.as_slice())
             .await
             .map_err(|e| CreateUpdateSecretError::WritingToStore(Box::new(e)))?;
-
-        fut.await.map_err(|e| {
-            CreateUpdateSecretError::EncryptingSecret(EncryptionError::SpawningThread(e))
-        })??;
 
         Ok(())
     }
@@ -117,15 +113,11 @@ where
         let temp_file_handle = File::open(temp_file_path)
             .await
             .map_err(EditSecretError::OpeningTempFile)?;
-        let (reader, fut) = encrypt_bytes(temp_file_handle, &secret.encryption_keys).await?;
+        let encrypted_data = encrypt_bytes(temp_file_handle, &secret.encryption_keys).await?;
         self.storage
-            .write(&secret.path, reader)
+            .write(&secret.path, encrypted_data.as_slice())
             .await
             .map_err(|e| EditSecretError::WritingToStore(Box::new(e)))?;
-
-        fut.await
-            .map_err(|e| EditSecretError::EncryptingSecret(EncryptionError::SpawningThread(e)))?
-            .map_err(EditSecretError::EncryptingSecret)?;
 
         Ok(ExitStatus::from_raw(0))
     }
@@ -188,16 +180,11 @@ where
             .await
             .map_err(UploadSecretError::ReadingSourceFile)?;
 
-        let (reader, handle) = encrypt_bytes(file, &secret.encryption_keys).await?;
+        let encrypted_data = encrypt_bytes(file, &secret.encryption_keys).await?;
         self.storage
-            .write(&secret.path, reader)
+            .write(&secret.path, encrypted_data.as_slice())
             .await
             .map_err(|e| UploadSecretError::WritingToStore(Box::new(e)))?;
-
-        handle
-            .await
-            .map_err(|e| UploadSecretError::EncryptingData(EncryptionError::SpawningThread(e)))?
-            .map_err(UploadSecretError::EncryptingData)?;
 
         Ok(ExitStatus::from_raw(0))
     }

@@ -1,15 +1,12 @@
-
 use std::path::Path;
 
 use age::cli_common::read_identities;
 use age::{Decryptor, Encryptor, Identity, Recipient};
 use tokio::io::{AsyncRead, AsyncWriteExt};
-use tokio::task::JoinHandle;
 use tokio_util::compat::{
     FuturesAsyncReadCompatExt,
     FuturesAsyncWriteCompatExt,
     TokioAsyncReadCompatExt,
-    TokioAsyncWriteCompatExt,
 };
 
 use crate::util::BoxedAsyncReader;
@@ -18,8 +15,6 @@ use crate::util::BoxedAsyncReader;
 pub enum EncryptionError {
     #[error("error creating data pipe: {0}")]
     CreatingPipe(std::io::Error),
-    #[error("error spawning read thread: {0}")]
-    SpawningThread(#[from] tokio::task::JoinError),
     #[error("error reading input data: {0}")]
     ReadingInput(std::io::Error),
     #[error("error writing output data: {0}")]
@@ -92,18 +87,10 @@ where
 pub async fn encrypt_bytes<R>(
     mut reader: R,
     public_keys: &[String],
-) -> Result<
-    (
-        BoxedAsyncReader,
-        JoinHandle<Result<(), EncryptionError>>,
-    ),
-    EncryptionError,
->
+) -> Result<Vec<u8>, EncryptionError>
 where
     R: AsyncRead + Send + Unpin + Send + 'static,
 {
-    let (r, w) = tokio_pipe::pipe().map_err(EncryptionError::CreatingPipe)?;
-    let compat_writer = w.compat_write();
     let recipients = public_keys
         .iter()
         .filter_map(|key| parse_recipient(key).ok())
@@ -111,30 +98,25 @@ where
     if recipients.is_empty() {
         return Err(EncryptionError::NoRecipientsFound);
     }
+
+    let mut encrypted = Vec::new();
     let mut encrypted_writer = Encryptor::with_recipients(recipients)
         .ok_or(EncryptionError::NoRecipientsFound)?
-        .wrap_async_output(compat_writer)
+        .wrap_async_output(&mut encrypted)
         .await
         .map_err(EncryptionError::CreatingStream)?
         .compat_write();
 
-    // NOTE: We spawn a thread here because AWS' SDK only exposes a
-    // reader-based API, and age only exposes a writer-based API for
-    // encryption, which means otherwise the user has to do this themselves to
-    // avoid blocking.
-    let f = tokio::spawn(async move {
-        tokio::io::copy(&mut reader, &mut encrypted_writer)
-            .await
-            .map_err(EncryptionError::ReadingInput)?;
-        encrypted_writer
-            .shutdown()
-            .await
-            .map_err(EncryptionError::ClosingOutput)?;
+    tokio::io::copy(&mut reader, &mut encrypted_writer)
+        .await
+        .map_err(EncryptionError::ReadingInput)?;
 
-        Ok(())
-    });
+    encrypted_writer
+        .shutdown()
+        .await
+        .map_err(EncryptionError::ClosingOutput)?;
 
-    Ok((BoxedAsyncReader::from_async_read(r), f))
+    Ok(encrypted)
 }
 
 // [Adapted from str4d/rage (ASL-2.0)](
