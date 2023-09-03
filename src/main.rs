@@ -1,5 +1,5 @@
-use std::fs;
 use std::path::PathBuf;
+use std::{fs, unimplemented};
 
 use clap::{Parser, Subcommand};
 use credible::StorageConfig::S3;
@@ -11,11 +11,22 @@ use credible::{
     ProcessRunningError,
     SecretManagerBuilder,
     SecretManagerConfig,
+    SystemSecretConfiguration,
     UnmountSecretsError,
     UploadSecretError,
     UserWrapper,
 };
 use thiserror::Error;
+
+/*
+* How should this actually work?
+*
+* credible system mount
+* credible system unmount
+* credible secret edit ...
+* credible secret create ...
+* credible run-command ...
+*/
 
 #[derive(Parser, Debug)]
 struct CliParams {
@@ -34,17 +45,31 @@ struct CliParams {
 }
 
 #[derive(Subcommand, Debug)]
-enum Actions {
+enum SystemAction {
     /// Mount all secrets in the configuration file on the current system
     Mount(Box<MountArgs>),
     /// Unmount our currently-mounted secrets, if any
     Unmount(UnmountArgs),
-    /// Edit a currently-managed secret
-    Edit(EditCommandArgs),
-    /// Run a command with populated secrets
-    RunCommand(RunCommandArgs),
+}
+
+#[derive(Subcommand, Debug)]
+enum SecretAction {
     /// Upload a new secret to the store
     Upload(UploadCommandArgs),
+    /// Edit a currently-managed secret
+    Edit(EditCommandArgs),
+}
+
+#[derive(Subcommand, Debug)]
+enum Actions {
+    /// Perform system-level functionality (persistent mounting)
+    #[command(subcommand)]
+    System(SystemAction),
+    /// Perform secret management (create/edit)
+    #[command(subcommand)]
+    Secret(SecretAction),
+    /// Run a command with populated secrets
+    RunCommand(RunCommandArgs),
 }
 
 #[derive(clap::Args, Debug)]
@@ -97,12 +122,7 @@ struct UnmountArgs {
     /// System-managed directory to mount secrets in.
     mount_point: PathBuf,
 
-    #[clap(
-        long,
-        short,
-        env = "CREDIBLE_SECRET_DIR",
-        default_value = "/run/credible"
-    )]
+    #[clap(long, short, default_value = "/run/credible")]
     /// Directory users should access secrets from.
     secret_dir: PathBuf,
 }
@@ -124,8 +144,10 @@ struct RunCommandArgs {
 
 #[derive(clap::Args, Debug)]
 struct UploadCommandArgs {
+    /// Name of the secret (as defined in conf file) to upload
     secret_name: String,
 
+    /// Plaintext file to read content from
     source_file: PathBuf,
 }
 
@@ -197,19 +219,28 @@ async fn real_main() -> Result<(), MainError> {
         .await;
 
     match args.action {
-        Actions::Mount(a) => {
-            manager
-                .mount(&a.mount_point, &a.secret_dir, &a.user, &a.group)
-                .await?
-        }
-        Actions::Unmount(args) => manager.unmount(&args.mount_point, &args.secret_dir).await?,
-        Actions::Edit(args) => manager.edit(&args.secret_name, &args.editor).await?,
         Actions::RunCommand(args) => {
             manager
                 .run_command(&args.cmd, args.mount, &args.mount_config)
                 .await?
         }
-        Actions::Upload(args) => manager.upload(&args.secret_name, &args.source_file).await?,
+        // TODO: Need to consider the role of SecretManager
+        Actions::System(cmd) => {
+            let conf = SystemSecretConfiguration::new(manager);
+            match cmd {
+                SystemAction::Mount(a) => {
+                    conf.mount(&a.mount_point, &a.secret_dir, &a.user, &a.group)
+                        .await?
+                }
+                SystemAction::Unmount(a) => conf.unmount(&a.mount_point, &a.secret_dir).await?,
+            }
+        }
+        Actions::Secret(cmd) => match cmd {
+            SecretAction::Edit(args) => manager.edit(&args.secret_name, &args.editor).await?,
+            SecretAction::Upload(args) => {
+                manager.upload(&args.secret_name, &args.source_file).await?
+            }
+        },
     };
 
     Ok(())
@@ -222,11 +253,11 @@ async fn main() {
         Err(MainError::ParsingCliArgs(e)) => {
             eprintln!("{e}");
             1
-        },
+        }
         Err(e) => {
             eprintln!("error: {e}");
             1
-        },
+        }
     };
 
     std::process::exit(code);

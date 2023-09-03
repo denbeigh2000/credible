@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 
-use crate::secret::ProcessRunningError;
-use crate::{IntoSecretStorage, Secret, SecretManager};
+use crate::manager::SecretManager;
+use crate::process::ProcessRunningError;
+use crate::{IntoSecretStorage, Secret};
 
 #[derive(Default)]
 pub struct SecretManagerBuilder {
