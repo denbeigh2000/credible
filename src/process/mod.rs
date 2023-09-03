@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::process::ExitStatus;
 
 use age::Identity;
-use signal_hook::consts::signal;
 use signal_hook_tokio::Signals;
 use tokio::fs::OpenOptions;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -15,6 +14,9 @@ use crate::{Exposures, Secret, SecretStorage};
 
 mod error;
 pub use error::*;
+
+mod signals;
+use signals::kill;
 
 pub async fn run_process<B>(
     argv: &[String],
@@ -43,6 +45,12 @@ where
             .expect("we should be able to represent all paths as os strs"),
     );
 
+    // Signal interception done before setting up secrets. This lets us avoid
+    // edge cases where we may leave secrets around without cleaning up
+    let mut signals = Signals::new(1..32).map_err(ProcessRunningError::CreatingSignalHandlers)?;
+
+    // Create files to expose to the process
+    // TODO: Move this into its' own function
     let mut buf = Vec::new();
     for (name, exposure_set) in exposures.files.iter() {
         let secret = secrets
@@ -80,6 +88,7 @@ where
         }
     }
 
+    // Expose environment variables to the process
     let mut buf = String::new();
     for (name, exposure_set) in exposures.envs.iter() {
         let secret = secrets
@@ -99,35 +108,21 @@ where
         buf.truncate(0);
     }
 
+    // Spawn the process, and wait for it to finish
     let mut process_handle = cmd.spawn().map_err(ProcessRunningError::ForkingProcess)?;
-    let pid = process_handle.id().unwrap();
+    let pid = process_handle.id().expect("spawned process has no PID");
     let process_fut = process_handle.wait();
     tokio::pin!(process_fut);
-
-    // TODO: Generically handle all signals
-    let mut signals = Signals::new([
-        signal::SIGINT,
-        signal::SIGABRT,
-        signal::SIGHUP,
-        signal::SIGUSR1,
-        signal::SIGUSR2,
-    ])
-    .expect("failed to set up signal listeners");
 
     let result = loop {
         tokio::select! {
             finished_process = &mut process_fut => {
-                break finished_process;
+                break finished_process.map_err(ProcessRunningError::JoiningProcess)?;
             },
             signal = signals.next() => {
-                let signal = signal.unwrap();
-                Command::new("kill")
-                    .arg("-s")
-                    .arg(signal.to_string())
-                    .arg(pid.to_string())
-                    .status()
-                    .await
-                    .expect("failed sending signal");
+                // NOTE: we should always be able to receive signals through the life of our process
+                let signal = signal.expect("signal iterator ended prematurely");
+                kill(pid, signal).await.map_err(ProcessRunningError::SignallingChildProcess)?;
             },
         }
     };
@@ -149,7 +144,7 @@ where
         }
     }
 
-    Ok(result.expect("TODO: IOError"))
+    Ok(result)
 }
 
 impl From<S3SecretStorageError> for ProcessRunningError {

@@ -24,10 +24,16 @@ pub enum ProcessRunningError {
     NotValidUTF8(String, std::string::FromUtf8Error),
     #[error("error running process: {0}")]
     ForkingProcess(std::io::Error),
+    #[error("error joining child process: {0}")]
+    JoiningProcess(std::io::Error),
     #[error("no such secret: {0}")]
     NoSuchSecret(String),
     #[error("creating data pipe: {0}")]
     CreatingDataPipe(std::io::Error),
     #[error("writing secret to file {0}")]
     WritingToFile(std::io::Error),
+    #[error("preparing signal handlers: {0}")]
+    CreatingSignalHandlers(std::io::Error),
+    #[error("forwarding signal to child process: {0}")]
+    SignallingChildProcess(std::io::Error),
 }
