@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::process::ExitStatus;
 
 use age::Identity;
@@ -6,7 +6,7 @@ use signal_hook_tokio::Signals;
 use tokio::process::Command;
 use tokio_stream::StreamExt;
 
-use crate::secret::{clean_files, expose_env, expose_files, S3SecretStorageError};
+use crate::secret::{clean_files, expose_env, expose_files, EnvExposeArgs, S3SecretStorageError};
 use crate::{Exposures, Secret, SecretStorage};
 
 mod error;
@@ -14,6 +14,27 @@ pub use error::*;
 
 mod signals;
 use signals::kill;
+
+// Maps our (name, exposure_set) pairs into (Secret, exposure_set) pairs.
+// Required because we can't use generics in a closure, and ideally I want to
+// avoid copy-pasting this block
+fn map_secrets<'a, A, I>(
+    secrets: &'a HashMap<String, &Secret>,
+    items: I,
+) -> Result<Vec<(&'a &'a Secret, &'a HashSet<A>)>, ProcessRunningError>
+where
+    I: Iterator<Item = (&'a String, &'a HashSet<A>)>,
+    A: 'static,
+{
+    items
+        .map(|(name, item)| {
+            secrets
+                .get(name.as_str())
+                .map(|secret| (secret, item))
+                .ok_or_else(|| ProcessRunningError::NoSuchSecret(name.into()))
+        })
+        .collect::<Result<Vec<_>, _>>()
+}
 
 pub async fn run_process<B>(
     argv: &[String],
@@ -47,34 +68,9 @@ where
     // edge cases where we may leave secrets around without cleaning up
     let mut signals = Signals::new(1..32).map_err(ProcessRunningError::CreatingSignalHandlers)?;
 
-    // TODO: This map copy-pasta is kind of ugly, but closures don't support
-    // generic arguments.
-
     // Create files to expose to the process
-    let env_pairs: Vec<_> = exposures
-        .envs
-        .iter()
-        // Map (name, exposure_args) to (secret, exposure_args)
-        .map(|(name, exp)| {
-            secrets
-                .get(name)
-                .ok_or_else(|| ProcessRunningError::NoSuchSecret(name.into()))
-                .map(|secret| (secret, exp))
-        })
-        .collect::<Result<_, _>>()?;
-
-    // Create files to expose to the process
-    let file_pairs: Vec<_> = exposures
-        .files
-        .iter()
-        // Map (name, exposure_args) to (secret, exposure_args)
-        .map(|(name, exp)| {
-            secrets
-                .get(name)
-                .map(|secret| (secret, exp))
-                .ok_or_else(|| ProcessRunningError::NoSuchSecret(name.into()))
-        })
-        .collect::<Result<_, _>>()?;
+    let env_pairs = map_secrets(secrets, exposures.envs.iter())?;
+    let file_pairs = map_secrets(secrets, exposures.files.iter())?;
 
     // Write env vars first, to decrease the likelihood of leaving unencrypted
     // files on-disk in case of crash
