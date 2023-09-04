@@ -141,19 +141,19 @@ where
             f.read_to_end(&mut buf)
                 .await
                 .map_err(ProcessRunningError::ReadingMountConfigFiles)?;
-            let data: HashMap<String, HashSet<ExposureSpec>> = serde_yaml::from_slice(&buf)
+            let data: HashMap<String, Vec<ExposureSpec>> = serde_yaml::from_slice(&buf)
                 .map_err(ProcessRunningError::DecodingMountConfigFiles)?;
             exposures.add_config(data);
         }
 
-        let mut cli_exposure_map: HashMap<String, HashSet<ExposureSpec>> = HashMap::new();
+        let mut cli_exposure_map: HashMap<String, Vec<ExposureSpec>> = HashMap::new();
         for exposure in exposure_flags {
             let (name, exp) = exposure.into();
             match cli_exposure_map.get_mut(&name) {
-                Some(v) => v.insert(exp),
-                None => cli_exposure_map
-                    .insert(name, HashSet::from([exp]))
-                    .is_some(),
+                Some(v) => v.push(exp),
+                None => {
+                    cli_exposure_map.insert(name, vec![exp]);
+                }
             };
         }
         exposures.add_config(cli_exposure_map);

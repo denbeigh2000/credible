@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use age::Identity;
 use tokio::fs::OpenOptions;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -13,7 +11,7 @@ const FILE_PERMISSIONS: u32 = 0o0400;
 pub async fn expose_files<S>(
     secret_dir: &Path,
     storage: &S,
-    exposures: &[(&&Secret, &HashSet<FileExposeArgs>)],
+    exposures: &[(&&Secret, &Vec<FileExposeArgs>)],
     identities: &[Box<dyn Identity>],
 ) -> Result<(), FileExposureError>
 where
@@ -35,8 +33,9 @@ where
         for file_spec in exposure_set.iter() {
             let dest_path = secret_dir.join(&secret.name);
 
+            let mode = file_spec.mode.unwrap_or(FILE_PERMISSIONS);
             let mut file = OpenOptions::new()
-                .mode(FILE_PERMISSIONS)
+                .mode(mode)
                 .create(true)
                 .truncate(true)
                 .write(true)
@@ -48,9 +47,13 @@ where
                 .await
                 .map_err(FileExposureError::WritingToFile)?;
 
-            tokio::fs::symlink(&dest_path, &file_spec.path)
-                .await
-                .map_err(FileExposureError::CreatingSymlink)?;
+            // file_spec.path to be changed to file_spec.vanity_path, and made
+            // optional so we can use-use this for system mounting
+            if let Some(p) = &file_spec.vanity_path {
+                tokio::fs::symlink(&dest_path, p)
+                    .await
+                    .map_err(FileExposureError::CreatingSymlink)?;
+            }
 
             buf.truncate(0);
         }

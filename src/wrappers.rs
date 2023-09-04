@@ -3,7 +3,7 @@ use std::str::FromStr;
 use nix::unistd::{Group, User};
 use serde_with::DeserializeFromStr;
 
-#[derive(DeserializeFromStr, Clone, Debug)]
+#[derive(DeserializeFromStr, Clone, Debug, PartialEq, Eq)]
 pub struct UserWrapper(User);
 
 impl FromStr for UserWrapper {
@@ -54,7 +54,7 @@ impl FromStr for GroupWrapper {
     }
 }
 
-#[derive(DeserializeFromStr, Clone, Debug)]
+#[derive(DeserializeFromStr, Clone, Debug, PartialEq, Eq)]
 pub struct GroupWrapper(Group);
 
 impl From<GroupWrapper> for Group {

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::process::ExitStatus;
 
 use age::Identity;
@@ -21,9 +21,9 @@ use signals::kill;
 fn map_secrets<'a, A, I>(
     secrets: &'a HashMap<String, &Secret>,
     items: I,
-) -> Result<Vec<(&'a &'a Secret, &'a HashSet<A>)>, ProcessRunningError>
+) -> Result<Vec<(&'a &'a Secret, &'a Vec<A>)>, ProcessRunningError>
 where
-    I: Iterator<Item = (&'a String, &'a HashSet<A>)>,
+    I: Iterator<Item = (&'a String, &'a Vec<A>)>,
     A: 'static,
 {
     items
@@ -102,7 +102,8 @@ where
     let paths = exposures
         .files
         .values()
-        .flat_map(|e| e.iter().map(|p| p.path.as_ref()));
+        .flat_map(|e| e.iter().map(|p| p.vanity_path.as_ref()))
+        .filter_map(|e| e.map(|p| p.as_path()));
     for e in clean_files(paths).await {
         // Failure to delete these isn't worth returning an error, because
         // these are just vanity symlinks that were pointing to our

@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use age::Identity;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
@@ -11,7 +9,7 @@ use crate::{Secret, SecretStorage};
 pub async fn expose_env<S>(
     cmd: &mut Command,
     storage: &S,
-    exposures: &[(&&Secret, &HashSet<EnvExposeArgs>)],
+    exposures: &[(&&Secret, &Vec<EnvExposeArgs>)],
     identities: &[Box<dyn Identity>],
 ) -> Result<(), EnvExposureError>
 where
