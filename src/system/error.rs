@@ -1,5 +1,6 @@
 use thiserror::Error;
 
+use crate::secret::FileExposureError;
 #[cfg(target_os = "macos")]
 use crate::system::darwin::*;
 #[cfg(target_os = "linux")]
@@ -29,6 +30,11 @@ pub enum MountSecretsError {
     DataPipeError(std::io::Error),
     #[error("failed to create symlink: {0}")]
     SymlinkCreationFailure(std::io::Error),
+
+    #[error("no secret with name: {0}")]
+    NoSuchSecret(String),
+    #[error("error exposing secrets as files: {0}")]
+    ExposingFilesFailure(#[from] FileExposureError),
 }
 
 #[derive(Error, Debug)]

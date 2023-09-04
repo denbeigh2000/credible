@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
@@ -9,6 +10,8 @@ use tokio::process::Command;
 
 use crate::manager::SecretManager;
 use crate::process::ProcessRunningError;
+use crate::secret::{expose_files, FileExposeArgs};
+use crate::util::map_secrets;
 use crate::{GroupWrapper, Secret, SecretError, SecretStorage, UserWrapper};
 
 mod error;
@@ -23,6 +26,53 @@ use darwin::*;
 mod linux;
 #[cfg(target_os = "linux")]
 use linux::*;
+
+pub async fn mount<S: SecretStorage>(
+    secret_dir: &Path,
+    secrets: &HashMap<String, &Secret>,
+    exposures: &HashMap<String, Vec<FileExposeArgs>>,
+    identities: &[Box<dyn Identity>],
+    storage: &S,
+) -> Result<(), MountSecretsError>
+where
+    <S as SecretStorage>::Error: 'static,
+{
+    // TODO: Need to bring in directory work from other branch
+    if device_mounted(secret_dir)? {
+        return Err(MountSecretsError::AlreadyMounted);
+    }
+
+    if !secret_dir.exists() {
+        let _ = fs::create_dir(secret_dir)
+            .await
+            .map_err(MountSecretsError::CreatingFilesFailure);
+    }
+
+    mount_persistent_ramfs(secret_dir).map_err(MountSecretsError::RamfsCreationFailure)?;
+    let file_pairs =
+        map_secrets(secrets, exposures.iter()).map_err(MountSecretsError::NoSuchSecret)?;
+
+    expose_files(secret_dir, storage, &file_pairs, identities).await?;
+
+    Ok(())
+}
+
+pub async fn unmount(mount_point: &Path, secret_dir: &Path) -> Result<(), UnmountSecretsError> {
+    if !device_mounted(mount_point)? {
+        return Ok(());
+    }
+
+    Command::new("umount")
+        .arg(mount_point)
+        .status()
+        .await
+        .map_err(UnmountSecretsError::InvokingCommand)?;
+    tokio::fs::remove_file(secret_dir)
+        .await
+        .map_err(UnmountSecretsError::RemovingSymlink)?;
+
+    Ok(())
+}
 
 // TODO: Make this more modular, so there's not a bunch of copy/paste between
 // this and SecretManager
