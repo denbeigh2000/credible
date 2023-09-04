@@ -3,13 +3,10 @@ use std::process::ExitStatus;
 
 use age::Identity;
 use signal_hook_tokio::Signals;
-use tokio::fs::OpenOptions;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 use tokio_stream::StreamExt;
 
-use crate::age::decrypt_bytes;
-use crate::secret::S3SecretStorageError;
+use crate::secret::{clean_files, expose_env, expose_files, S3SecretStorageError};
 use crate::{Exposures, Secret, SecretStorage};
 
 mod error;
@@ -23,10 +20,11 @@ pub async fn run_process<B>(
     secrets: &HashMap<String, &Secret>,
     exposures: &Exposures,
     identities: &[Box<dyn Identity>],
-    backing: &B,
+    store: &B,
 ) -> Result<ExitStatus, ProcessRunningError>
 where
     B: SecretStorage,
+    <B as SecretStorage>::Error: 'static,
     ProcessRunningError: From<<B as SecretStorage>::Error>,
 {
     let first = argv.first().ok_or(ProcessRunningError::EmptyCommand)?;
@@ -36,10 +34,10 @@ where
     }
 
     // TODO: permissions?
-    let secret_dir = tempfile::tempdir().map_err(ProcessRunningError::CreatingTempDir)?;
+    let tmpdir = tempfile::tempdir().map_err(ProcessRunningError::CreatingTempDir)?;
     cmd.env(
         "SECRETS_FILE_DIR",
-        secret_dir
+        tmpdir
             .path()
             .to_str()
             .expect("we should be able to represent all paths as os strs"),
@@ -49,64 +47,39 @@ where
     // edge cases where we may leave secrets around without cleaning up
     let mut signals = Signals::new(1..32).map_err(ProcessRunningError::CreatingSignalHandlers)?;
 
+    // TODO: This map copy-pasta is kind of ugly, but closures don't support
+    // generic arguments.
+
     // Create files to expose to the process
-    // TODO: Move this into its' own function
-    let mut buf = Vec::new();
-    for (name, exposure_set) in exposures.files.iter() {
-        let secret = secrets
-            .get(name)
-            .ok_or_else(|| ProcessRunningError::NoSuchSecret(name.to_string()))?;
+    let env_pairs: Vec<_> = exposures
+        .envs
+        .iter()
+        // Map (name, exposure_args) to (secret, exposure_args)
+        .map(|(name, exp)| {
+            secrets
+                .get(name)
+                .ok_or_else(|| ProcessRunningError::NoSuchSecret(name.into()))
+                .map(|secret| (secret, exp))
+        })
+        .collect::<Result<_, _>>()?;
 
-        let reader = backing.read(&secret.path).await?;
-        let mut reader = decrypt_bytes(reader, identities).await?;
-        reader
-            .read_to_end(&mut buf)
-            .await
-            .map_err(|e| ProcessRunningError::FetchingSecretsErr(Box::new(e)))?;
+    // Create files to expose to the process
+    let file_pairs: Vec<_> = exposures
+        .files
+        .iter()
+        // Map (name, exposure_args) to (secret, exposure_args)
+        .map(|(name, exp)| {
+            secrets
+                .get(name)
+                .map(|secret| (secret, exp))
+                .ok_or_else(|| ProcessRunningError::NoSuchSecret(name.into()))
+        })
+        .collect::<Result<_, _>>()?;
 
-        for file_spec in exposure_set.iter() {
-            let dest_path = secret_dir.path().join(&secret.name);
-
-            let mut file = OpenOptions::new()
-                .mode(0o0600)
-                .create(true)
-                .truncate(true)
-                .write(true)
-                .open(&dest_path)
-                .await
-                .map_err(ProcessRunningError::CreatingTempFile)?;
-
-            file.write_all(&buf)
-                .await
-                .map_err(ProcessRunningError::WritingToFile)?;
-
-            tokio::fs::symlink(&dest_path, &file_spec.path)
-                .await
-                .map_err(ProcessRunningError::CreatingSymlink)?;
-
-            buf.truncate(0);
-        }
-    }
-
-    // Expose environment variables to the process
-    let mut buf = String::new();
-    for (name, exposure_set) in exposures.envs.iter() {
-        let secret = secrets
-            .get(name)
-            .ok_or_else(|| ProcessRunningError::NoSuchSecret(name.to_string()))?;
-
-        let reader = backing.read(&secret.path).await?;
-        let mut reader = decrypt_bytes(reader, identities).await?;
-        reader
-            .read_to_string(&mut buf)
-            .await
-            .map_err(|e| ProcessRunningError::FetchingSecretsErr(Box::new(e)))?;
-        for env_spec in exposure_set.iter() {
-            cmd.env(&env_spec.name, &buf);
-        }
-
-        buf.truncate(0);
-    }
+    // Write env vars first, to decrease the likelihood of leaving unencrypted
+    // files on-disk in case of crash
+    expose_env(&mut cmd, store, &env_pairs, identities).await?;
+    expose_files(tmpdir.as_ref(), store, &file_pairs, identities).await?;
 
     // Spawn the process, and wait for it to finish
     let mut process_handle = cmd.spawn().map_err(ProcessRunningError::ForkingProcess)?;
@@ -127,21 +100,18 @@ where
         }
     };
 
-    drop(secret_dir);
+    drop(tmpdir);
 
     // Clean up dangling symlinks
-    for exposure_set in exposures.files.values() {
-        for spec in exposure_set.iter() {
-            if let Err(e) = tokio::fs::remove_file(&spec.path)
-                .await
-                .map_err(ProcessRunningError::DeletingSymlink)
-            {
-                // Failure to delete these isn't worth returning an error, because
-                // these are just vanity symlinks that were pointing to our
-                // now-deleted temp dir
-                eprintln!("error cleaning up symlink: {e}");
-            };
-        }
+    let paths = exposures
+        .files
+        .values()
+        .flat_map(|e| e.iter().map(|p| p.path.as_ref()));
+    for e in clean_files(paths).await {
+        // Failure to delete these isn't worth returning an error, because
+        // these are just vanity symlinks that were pointing to our
+        // now-deleted temp dir
+        eprintln!("{e}");
     }
 
     Ok(result)

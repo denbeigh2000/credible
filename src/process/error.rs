@@ -1,4 +1,5 @@
 use crate::age::DecryptionError;
+use crate::secret::{EnvExposureError, FileExposureError};
 
 #[derive(thiserror::Error, Debug)]
 pub enum ProcessRunningError {
@@ -36,4 +37,8 @@ pub enum ProcessRunningError {
     CreatingSignalHandlers(std::io::Error),
     #[error("forwarding signal to child process: {0}")]
     SignallingChildProcess(std::io::Error),
+    #[error("exposing secret files: {0}")]
+    ExposingSecretFiles(#[from] FileExposureError),
+    #[error("exposing secret envs: {0}")]
+    ExposingSecretEnvs(#[from] EnvExposureError),
 }
