@@ -8,10 +8,11 @@ use crate::secret::{Secret, SecretStorage, *};
 
 const FILE_PERMISSIONS: u32 = 0o0400;
 
+// TODO: We should probably store some kind of metadata file here, so we can `
 pub async fn expose_files<S>(
     secret_dir: &Path,
     storage: &S,
-    exposures: &[(&&Secret, &Vec<FileExposeArgs>)],
+    exposures: &[(&Secret, &Vec<FileExposeArgs>)],
     identities: &[Box<dyn Identity>],
 ) -> Result<(), FileExposureError>
 where
@@ -24,6 +25,7 @@ where
             .read(&secret.path)
             .await
             .map_err(|e| FileExposureError::FetchingSecret(Box::new(e)))?;
+
         let mut reader = decrypt_bytes(reader, identities).await?;
         reader
             .read_to_end(&mut buf)
@@ -31,21 +33,28 @@ where
             .map_err(|e| FileExposureError::FetchingSecret(Box::new(e)))?;
 
         for file_spec in exposure_set.iter() {
-            let dest_path = secret_dir.join(&secret.name);
-
+            let owner = file_spec.owner.as_ref().map(|o| o.as_ref().uid);
+            let group = file_spec.group.as_ref().map(|g| g.as_ref().gid);
             let mode = file_spec.mode.unwrap_or(FILE_PERMISSIONS);
-            let mut file = OpenOptions::new()
-                .mode(mode)
-                .create(true)
-                .truncate(true)
-                .write(true)
-                .open(&dest_path)
-                .await
-                .map_err(FileExposureError::CreatingTempFile)?;
 
-            file.write_all(&buf)
-                .await
-                .map_err(FileExposureError::WritingToFile)?;
+            let dest_path = secret_dir.join(&secret.name);
+            {
+                let mut file = OpenOptions::new()
+                    .mode(mode)
+                    .create(true)
+                    .truncate(true)
+                    .write(true)
+                    .open(&dest_path)
+                    .await
+                    .map_err(FileExposureError::CreatingTempFile)?;
+
+                file.write_all(&buf)
+                    .await
+                    .map_err(FileExposureError::WritingToFile)?;
+            }
+
+            nix::unistd::chown(dest_path.as_path(), owner, group)
+                .map_err(FileExposureError::SettingPermissions)?;
 
             // file_spec.path to be changed to file_spec.vanity_path, and made
             // optional so we can use-use this for system mounting
@@ -54,9 +63,9 @@ where
                     .await
                     .map_err(FileExposureError::CreatingSymlink)?;
             }
-
-            buf.truncate(0);
         }
+
+        buf.truncate(0);
     }
 
     Ok(())
@@ -92,6 +101,8 @@ pub enum FileExposureError {
     WritingToFile(std::io::Error),
     #[error("error creating symlink to decrypted secret: {0}")]
     CreatingSymlink(std::io::Error),
+    #[error("error setting permissions on created file: {0}")]
+    SettingPermissions(nix::errno::Errno),
 }
 
 #[derive(thiserror::Error, Debug)]

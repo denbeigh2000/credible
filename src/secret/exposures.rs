@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::unimplemented;
 
 use serde::Deserialize;
 
@@ -9,7 +8,7 @@ use serde::Deserialize;
 #[serde(tag = "type")]
 pub enum ExposureSpec {
     #[serde(alias = "file")]
-    File(FileExposeArgs),
+    File(Box<FileExposeArgs>),
     #[serde(alias = "env")]
     Env(EnvExposeArgs),
 }
@@ -18,15 +17,14 @@ impl ExposureSpec {
     pub fn file_from_str(path: &str) -> Self {
         let vanity_path = Some(path.parse().expect("infallible error"));
         let mode = None;
-        // TODO
-        let group = unimplemented!();
-        let owner = unimplemented!();
-        Self::File(FileExposeArgs {
+        let group = None;
+        let owner = None;
+        Self::File(Box::new(FileExposeArgs {
             vanity_path,
             mode,
             owner,
             group,
-        })
+        }))
     }
 
     pub fn env_from_str(name: &str) -> Self {
@@ -102,9 +100,9 @@ impl Exposures {
 
                     ExposureSpec::File(file_path) => {
                         match self.files.get_mut(&name) {
-                            Some(v) => v.push(file_path),
+                            Some(v) => v.push(*file_path),
                             None => {
-                                self.files.insert(name.clone(), vec![file_path]);
+                                self.files.insert(name.clone(), vec![*file_path]);
                             }
                         };
                     }

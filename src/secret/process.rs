@@ -9,7 +9,7 @@ use crate::{Secret, SecretStorage};
 pub async fn expose_env<S>(
     cmd: &mut Command,
     storage: &S,
-    exposures: &[(&&Secret, &Vec<EnvExposeArgs>)],
+    exposures: &[(&Secret, &Vec<EnvExposeArgs>)],
     identities: &[Box<dyn Identity>],
 ) -> Result<(), EnvExposureError>
 where

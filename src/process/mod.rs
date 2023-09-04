@@ -7,6 +7,7 @@ use tokio::process::Command;
 use tokio_stream::StreamExt;
 
 use crate::secret::{clean_files, expose_env, expose_files, EnvExposeArgs, S3SecretStorageError};
+use crate::util::map_secrets;
 use crate::{Exposures, Secret, SecretStorage};
 
 mod error;
@@ -14,27 +15,6 @@ pub use error::*;
 
 mod signals;
 use signals::kill;
-
-// Maps our (name, exposure_set) pairs into (Secret, exposure_set) pairs.
-// Required because we can't use generics in a closure, and ideally I want to
-// avoid copy-pasting this block
-fn map_secrets<'a, A, I>(
-    secrets: &'a HashMap<String, &Secret>,
-    items: I,
-) -> Result<Vec<(&'a &'a Secret, &'a Vec<A>)>, ProcessRunningError>
-where
-    I: Iterator<Item = (&'a String, &'a Vec<A>)>,
-    A: 'static,
-{
-    items
-        .map(|(name, item)| {
-            secrets
-                .get(name.as_str())
-                .map(|secret| (secret, item))
-                .ok_or_else(|| ProcessRunningError::NoSuchSecret(name.into()))
-        })
-        .collect::<Result<Vec<_>, _>>()
-}
 
 pub async fn run_process<B>(
     argv: &[String],
@@ -69,8 +49,10 @@ where
     let mut signals = Signals::new(1..32).map_err(ProcessRunningError::CreatingSignalHandlers)?;
 
     // Create files to expose to the process
-    let env_pairs = map_secrets(secrets, exposures.envs.iter())?;
-    let file_pairs = map_secrets(secrets, exposures.files.iter())?;
+    let env_pairs =
+        map_secrets(secrets, exposures.envs.iter()).map_err(ProcessRunningError::NoSuchSecret)?;
+    let file_pairs =
+        map_secrets(secrets, exposures.files.iter()).map_err(ProcessRunningError::NoSuchSecret)?;
 
     // Write env vars first, to decrease the likelihood of leaving unencrypted
     // files on-disk in case of crash

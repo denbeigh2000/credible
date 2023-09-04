@@ -1,6 +1,9 @@
+use std::collections::HashMap;
 use std::pin::Pin;
 
 use tokio::io::AsyncRead;
+
+use crate::Secret;
 
 pub struct BoxedAsyncReader {
     inner: Box<dyn AsyncRead + Unpin + Send + 'static>,
@@ -23,4 +26,25 @@ impl AsyncRead for BoxedAsyncReader {
         let mut inner = &mut self.inner;
         Pin::new(&mut inner).poll_read(cx, buf)
     }
+}
+
+/// Maps (name, exposure_set) pairs into (Secret, exposure_set) pairs.
+/// Required because we can't use generics in a closure, and ideally I want to
+/// avoid copy-pasting this block
+pub fn map_secrets<'a, A, I>(
+    secrets: &'a HashMap<String, &Secret>,
+    items: I,
+) -> Result<Vec<(&'a Secret, &'a Vec<A>)>, String>
+where
+    I: Iterator<Item = (&'a String, &'a Vec<A>)>,
+    A: 'static,
+{
+    items
+        .map(|(name, item)| {
+            secrets
+                .get(name.as_str())
+                .map(|secret| (*secret, item))
+                .ok_or_else(|| name.into())
+        })
+        .collect::<Result<Vec<_>, _>>()
 }
