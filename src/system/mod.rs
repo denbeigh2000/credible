@@ -65,6 +65,11 @@ where
 
     expose_files(&mount_point, storage, &file_pairs, identities).await?;
 
+    if secret_dir.exists() {
+        tokio::fs::remove_file(secret_dir)
+            .await
+            .map_err(MountSecretsError::SymlinkCreationFailure)?;
+    }
     tokio::fs::symlink(&mount_point, secret_dir)
         .await
         .map_err(MountSecretsError::SymlinkCreationFailure)?;

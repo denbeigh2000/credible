@@ -8,7 +8,9 @@ use crate::secret::{Secret, SecretStorage, *};
 
 const FILE_PERMISSIONS: u32 = 0o0400;
 
-// TODO: We should probably store some kind of metadata file here, so we can `
+// TODO:
+// - metadata file (what points here, time set, etc)
+// - state locking
 pub async fn expose_files<S>(
     secret_dir: &Path,
     storage: &S,
@@ -56,9 +58,12 @@ where
             nix::unistd::chown(dest_path.as_path(), owner, group)
                 .map_err(FileExposureError::SettingPermissions)?;
 
-            // file_spec.path to be changed to file_spec.vanity_path, and made
-            // optional so we can use-use this for system mounting
             if let Some(p) = &file_spec.vanity_path {
+                if p.exists() {
+                    tokio::fs::remove_file(p)
+                        .await
+                        .map_err(FileExposureError::CreatingSymlink)?;
+                }
                 tokio::fs::symlink(&dest_path, p)
                     .await
                     .map_err(FileExposureError::CreatingSymlink)?;

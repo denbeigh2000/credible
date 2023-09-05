@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::process::ExitStatus;
 
 use age::Identity;
+use nix::sys::stat::FchmodatFlags::FollowSymlink;
+use nix::sys::stat::Mode;
 use signal_hook_tokio::Signals;
 use tokio::process::Command;
 use tokio_stream::StreamExt;
@@ -34,7 +36,6 @@ where
         cmd.arg(arg);
     }
 
-    // TODO: permissions?
     let tmpdir = tempfile::tempdir().map_err(ProcessRunningError::CreatingTempDir)?;
     cmd.env(
         "SECRETS_FILE_DIR",
@@ -43,6 +44,14 @@ where
             .to_str()
             .expect("we should be able to represent all paths as os strs"),
     );
+
+    nix::sys::stat::fchmodat(
+        None,
+        tmpdir.path(),
+        Mode::from_bits(0o0700).unwrap(),
+        FollowSymlink,
+    )
+    .map_err(ProcessRunningError::ChmoddingTempDir)?;
 
     // Signal interception done before setting up secrets. This lets us avoid
     // edge cases where we may leave secrets around without cleaning up

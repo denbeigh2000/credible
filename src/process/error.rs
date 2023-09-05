@@ -13,6 +13,8 @@ pub enum ProcessRunningError {
     EmptyCommand,
     #[error("couldn't create tempdir: {0}")]
     CreatingTempDir(std::io::Error),
+    #[error("setting permissions on tempdir: {0}")]
+    ChmoddingTempDir(nix::errno::Errno),
     #[error("couldn't create temp file: {0}")]
     CreatingTempFile(std::io::Error),
     #[error("couldn't create symlink to decrypted secret: {0}")]
