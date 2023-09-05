@@ -6,7 +6,7 @@ use signal_hook_tokio::Signals;
 use tokio::process::Command;
 use tokio_stream::StreamExt;
 
-use crate::secret::{clean_files, expose_env, expose_files, EnvExposeArgs, S3SecretStorageError};
+use crate::secret::{clean_files, expose_env, expose_files, S3SecretStorageError};
 use crate::util::map_secrets;
 use crate::{Exposures, Secret, SecretStorage};
 
@@ -18,7 +18,7 @@ use signals::kill;
 
 pub async fn run_process<B>(
     argv: &[String],
-    secrets: &HashMap<String, &Secret>,
+    secrets: &HashMap<String, Secret>,
     exposures: &Exposures,
     identities: &[Box<dyn Identity>],
     store: &B,

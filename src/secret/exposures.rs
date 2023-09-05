@@ -110,4 +110,18 @@ impl Exposures {
             }
         });
     }
+
+    pub fn add_cli_config<I: IntoIterator<Item = CliExposureSpec>>(&mut self, configs: I) {
+        let mut cli_exposure_map: HashMap<String, Vec<ExposureSpec>> = HashMap::new();
+        for exposure in configs {
+            let (name, exp) = exposure.into();
+            match cli_exposure_map.get_mut(&name) {
+                Some(v) => v.push(exp),
+                None => {
+                    cli_exposure_map.insert(name, vec![exp]);
+                }
+            };
+        }
+        self.add_config(cli_exposure_map);
+    }
 }

@@ -2,10 +2,8 @@ use std::path::PathBuf;
 
 use serde::Deserialize;
 
-mod builder;
-pub use builder::SecretManagerBuilder;
-mod system;
-pub use system::{MountSecretsError, SystemSecretConfiguration, UnmountSecretsError};
+pub mod system;
+pub use system::{MountSecretsError, UnmountSecretsError};
 mod secret;
 use secret::S3Config;
 pub use secret::{CliExposureSpec, Exposures, Secret, SecretError, SecretStorage};
@@ -14,11 +12,10 @@ mod process_utils;
 
 mod age;
 
-mod manager;
-pub use manager::{EditSecretError, UploadSecretError};
-
 mod process;
 pub use process::ProcessRunningError;
+
+pub mod cli;
 
 mod wrappers;
 pub use wrappers::{GroupWrapper, UserWrapper};
@@ -39,6 +36,7 @@ pub struct SecretManagerConfig {
 
 #[derive(Deserialize, Debug)]
 #[serde(tag = "type")]
+#[non_exhaustive]
 pub enum StorageConfig {
     S3(S3Config),
 }

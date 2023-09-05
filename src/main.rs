@@ -3,19 +3,7 @@ use std::{fs, unimplemented};
 
 use clap::{Parser, Subcommand};
 use credible::StorageConfig::S3;
-use credible::{
-    CliExposureSpec,
-    EditSecretError,
-    GroupWrapper,
-    MountSecretsError,
-    ProcessRunningError,
-    SecretManagerBuilder,
-    SecretManagerConfig,
-    SystemSecretConfiguration,
-    UnmountSecretsError,
-    UploadSecretError,
-    UserWrapper,
-};
+use credible::{cli, CliExposureSpec, GroupWrapper, SecretManagerConfig, UserWrapper};
 use thiserror::Error;
 
 /*
@@ -170,15 +158,15 @@ enum MainError {
     #[error("invalid config file: {0}")]
     ParsingConfigFile(#[from] serde_yaml::Error),
     #[error("mounting secrets: {0}")]
-    MountingSecrets(#[from] MountSecretsError),
+    MountingSecrets(#[from] cli::system::MountSecretsError),
     #[error("unmounting secrets: {0}")]
-    UnmountingSecrets(#[from] UnmountSecretsError),
+    UnmountingSecrets(#[from] cli::system::UnmountSecretsError),
     #[error("running subcommand: {0}")]
-    RunningProcess(#[from] ProcessRunningError),
+    RunningProcess(#[from] cli::process::ProcessRunningError),
     #[error("uploading secret: {0}")]
-    UploadingSecret(#[from] UploadSecretError),
+    UploadingSecret(#[from] cli::secret::CreateUpdateSecretError),
     #[error("editing secret: {0}")]
-    EditingSecret(#[from] EditSecretError),
+    EditingSecret(#[from] cli::secret::EditSecretError),
 }
 
 fn find_config_file() -> Option<PathBuf> {
@@ -212,7 +200,7 @@ async fn real_main() -> Result<(), MainError> {
         _ => unimplemented!(),
     };
 
-    let manager = SecretManagerBuilder::default()
+    let state = cli::StateBuilder::default()
         .set_secrets(config.secrets)
         .set_private_key_paths(args.private_key_paths)
         .build(cfg)
@@ -220,25 +208,22 @@ async fn real_main() -> Result<(), MainError> {
 
     match args.action {
         Actions::RunCommand(args) => {
-            manager
-                .run_command(&args.cmd, args.mount, &args.mount_config)
-                .await?
+            cli::process::run(&state, &args.cmd, args.mount, &args.mount_config).await?
         }
-        // TODO: Need to consider the role of SecretManager
-        Actions::System(cmd) => {
-            let conf = SystemSecretConfiguration::new(manager);
-            match cmd {
-                SystemAction::Mount(a) => {
-                    conf.mount(&a.mount_point, &a.secret_dir, &a.user, &a.group)
-                        .await?
-                }
-                SystemAction::Unmount(a) => conf.unmount(&a.mount_point, &a.secret_dir).await?,
+        Actions::System(cmd) => match cmd {
+            SystemAction::Mount(a) => {
+                cli::system::mount(&state, &a.mount_point, &a.secret_dir).await?
             }
-        }
+            SystemAction::Unmount(a) => {
+                cli::system::unmount(&a.mount_point, &a.secret_dir).await?
+            }
+        },
         Actions::Secret(cmd) => match cmd {
-            SecretAction::Edit(args) => manager.edit(&args.secret_name, &args.editor).await?,
+            SecretAction::Edit(args) => {
+                cli::secret::edit(&state, &args.secret_name, &args.editor).await?
+            }
             SecretAction::Upload(args) => {
-                manager.upload(&args.secret_name, &args.source_file).await?
+                cli::secret::create(&state, &args.secret_name, Some(&args.source_file)).await?
             }
         },
     };

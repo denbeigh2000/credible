@@ -32,7 +32,7 @@ impl AsyncRead for BoxedAsyncReader {
 /// Required because we can't use generics in a closure, and ideally I want to
 /// avoid copy-pasting this block
 pub fn map_secrets<'a, A, I>(
-    secrets: &'a HashMap<String, &Secret>,
+    secrets: &'a HashMap<String, Secret>,
     items: I,
 ) -> Result<Vec<(&'a Secret, &'a Vec<A>)>, String>
 where
@@ -43,7 +43,7 @@ where
         .map(|(name, item)| {
             secrets
                 .get(name.as_str())
-                .map(|secret| (*secret, item))
+                .map(|secret| (secret, item))
                 .ok_or_else(|| name.into())
         })
         .collect::<Result<Vec<_>, _>>()
