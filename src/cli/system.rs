@@ -46,7 +46,7 @@ pub async fn unmount(
     mount_point: &Path,
     secret_dir: &Path,
 ) -> Result<ExitStatus, UnmountSecretsError> {
-    system::unmount(mount_point, secret_dir).await?;
+    system::unmount(mount_point, Some(secret_dir), None).await?;
 
     Ok(ExitStatus::from_raw(0))
 }

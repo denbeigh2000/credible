@@ -76,20 +76,28 @@ where
         .map_err(MountSecretsError::SymlinkCreationFailure)?;
 
     // Remove any old symlinks
+    unmount(base_mount_point, None, Some(&time_ms)).await?;
+
+    Ok(())
+}
+
+pub async fn unmount(
+    base_mount_point: &Path,
+    unlink_dir: Option<&Path>,
+    skip: Option<&str>,
+) -> Result<(), UnmountSecretsError> {
     let mut dir_entries = fs::read_dir(base_mount_point)
         .await
-        .map_err(MountSecretsError::ListingOldSymlinks)?;
+        .map_err(UnmountSecretsError::ListingOldSymlinks)?;
 
     while let Some(entry) = dir_entries
         .next_entry()
         .await
-        .map_err(MountSecretsError::ListingOldSymlinks)?
+        .map_err(UnmountSecretsError::ListingOldSymlinks)?
     {
         let file_name = entry.file_name();
         let dir_name = file_name.to_str().expect("path is not UTF-8 compatible");
-        // TODO: We should also check to see if this is a time that is less
-        // than our own
-        if dir_name != time_ms.as_str() {
+        if Some(dir_name) != skip {
             let p = entry.path();
             if device_mounted(&p).await? {
                 unmount_persistent_ramfs(&p).await?
@@ -98,23 +106,17 @@ where
             // TODO: better error
             fs::remove_dir(&p)
                 .await
-                .map_err(MountSecretsError::DeletingOldDir)?;
+                .map_err(UnmountSecretsError::DeletingOldDir)?;
         }
     }
 
-    Ok(())
-}
-
-pub async fn unmount(mount_point: &Path, secret_dir: &Path) -> Result<(), UnmountSecretsError> {
-    if !device_mounted(mount_point).await? {
-        return Ok(());
+    if let Some(p) = unlink_dir {
+        if p.is_symlink() {
+            tokio::fs::remove_file(p)
+                .await
+                .map_err(UnmountSecretsError::RemovingSymlink)?;
+        }
     }
-
-    unmount_persistent_ramfs(mount_point).await?;
-
-    tokio::fs::remove_file(secret_dir)
-        .await
-        .map_err(UnmountSecretsError::RemovingSymlink)?;
 
     Ok(())
 }
