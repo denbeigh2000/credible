@@ -67,6 +67,7 @@ impl FromStr for CliExposureSpec {
 
 #[derive(Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct FileExposeArgs {
+    #[serde(alias = "path")]
     pub vanity_path: Option<PathBuf>,
     pub mode: Option<u32>,
     pub owner: Option<crate::UserWrapper>,
