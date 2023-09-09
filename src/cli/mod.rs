@@ -51,7 +51,16 @@ where
     <S as SecretStorage>::Error: 'static,
 {
     match action {
-        SystemAction::Mount(a) => system::mount(state, &a.mount_point, &a.secret_dir).await?,
+        SystemAction::Mount(a) => {
+            system::mount(
+                state,
+                &a.mount_point,
+                &a.secret_dir,
+                &a.mount_config,
+                a.mount,
+            )
+            .await?
+        }
         SystemAction::Unmount(a) => system::unmount(&a.mount_point, &a.secret_dir).await?,
     };
 
@@ -65,7 +74,7 @@ where
     <S as SecretStorage>::Error: 'static,
 {
     match action {
-        SecretAction::Edit(a) => secret::edit(s, &a.secret_name, &a.editor).await?,
+        SecretAction::Edit(a) => secret::edit(s, &a.editor, &a.secret_name).await?,
         SecretAction::Upload(a) => secret::create(s, &a.secret_name, Some(&a.source_file)).await?,
     };
 

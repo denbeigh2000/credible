@@ -59,7 +59,7 @@ where
                 .map_err(FileExposureError::SettingPermissions)?;
 
             if let Some(p) = &file_spec.vanity_path {
-                if p.exists() {
+                if p.is_symlink() {
                     tokio::fs::remove_file(p)
                         .await
                         .map_err(FileExposureError::CreatingSymlink)?;

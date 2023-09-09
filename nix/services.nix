@@ -17,12 +17,7 @@ let
   inherit (lib) mapAttrsToList concatStringsSep optionalString;
 
   mountScript = ''
-    if [[ -e "${secretDir}" ]]
-    then
-      ${credible}/bin/credible unmount
-    fi
-
-    ${credible}/bin/credible mount
+    ${credible}/bin/credible system mount
   '';
 
   writtenConfigFile = writeText "credible.json" (builtins.toJSON configFile);

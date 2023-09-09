@@ -8,6 +8,7 @@ use signal_hook_tokio::Signals;
 use tokio::process::Command;
 use tokio_stream::StreamExt;
 
+use crate::process::signals::SIGNALS;
 use crate::secret::{clean_files, expose_env, expose_files, S3SecretStorageError};
 use crate::util::map_secrets;
 use crate::{Exposures, Secret, SecretStorage};
@@ -55,7 +56,7 @@ where
 
     // Signal interception done before setting up secrets. This lets us avoid
     // edge cases where we may leave secrets around without cleaning up
-    let mut signals = Signals::new(1..32).map_err(ProcessRunningError::CreatingSignalHandlers)?;
+    let mut signals = Signals::new(SIGNALS).map_err(ProcessRunningError::CreatingSignalHandlers)?;
 
     // Create files to expose to the process
     let env_pairs =

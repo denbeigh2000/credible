@@ -922,6 +922,7 @@ dependencies = [
  "futures",
  "lazy_static",
  "nix",
+ "plist",
  "serde",
  "serde_with",
  "serde_yaml",
@@ -1706,6 +1707,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "line-wrap"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f30344350a2a51da54c1d53be93fade8a237e545dbcc4bdbe635413f2117cab9"
+dependencies = [
+ "safemem",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2005,6 +2015,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "26072860ba924cbfa98ea39c8c19b4dd6a4a25423dbdf219c1eca91aa0cf6964"
 
 [[package]]
+name = "plist"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bdc0001cfea3db57a2e24bc0d818e9e20e554b5f97fabb9bc231dc240269ae06"
+dependencies = [
+ "base64 0.21.2",
+ "indexmap 1.9.3",
+ "line-wrap",
+ "quick-xml",
+ "serde",
+ "time",
+]
+
+[[package]]
 name = "poly1305"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2064,6 +2088,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92de25114670a878b1261c79c9f8f729fb97e95bac93f6312f583c60dd6a1dfe"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "quick-xml"
+version = "0.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81b9228215d82c7b61490fec1de287136b5de6f5700f6e58ea9ad61a7964ca51"
+dependencies = [
+ "memchr",
 ]
 
 [[package]]
@@ -2344,6 +2377,12 @@ name = "ryu"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ad4cc8da4ef723ed60bced201181d83791ad433213d8c24efffda1eec85d741"
+
+[[package]]
+name = "safemem"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef703b7cb59335eae2eb93ceb664c0eb7ea6bf567079d843e09420219668e072"
 
 [[package]]
 name = "salsa20"
