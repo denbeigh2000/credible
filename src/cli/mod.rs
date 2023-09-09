@@ -74,7 +74,7 @@ where
     <S as SecretStorage>::Error: 'static,
 {
     match action {
-        SecretAction::Edit(a) => secret::edit(s, &a.secret_name, &a.editor).await?,
+        SecretAction::Edit(a) => secret::edit(s, &a.editor, &a.secret_name).await?,
         SecretAction::Upload(a) => secret::create(s, &a.secret_name, Some(&a.source_file)).await?,
     };
 
