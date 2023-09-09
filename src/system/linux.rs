@@ -48,7 +48,7 @@ pub async fn mount_persistent_ramfs(dir: &Path) -> Result<(), MountRamfsError> {
 
     if !cmd.status.success() {
         let msg = process_msg("mount", cmd.stderr);
-        return Err(MountRamfsError::CreatingRamfs(msg));
+        return Err(MountRamfsError::MountingRamfs(msg));
     }
 
     Ok(())
