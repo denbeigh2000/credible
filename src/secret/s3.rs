@@ -2,6 +2,7 @@ use std::path::Path;
 
 use async_trait::async_trait;
 use aws_sdk_s3::error::SdkError;
+use aws_sdk_s3::config::Region;
 use aws_sdk_s3::operation::get_object::GetObjectError;
 use aws_sdk_s3::operation::put_object::PutObjectError;
 use aws_sdk_s3::primitives::{ByteStream, ByteStreamError};
@@ -17,6 +18,9 @@ use crate::IntoSecretStorage;
 #[derive(Deserialize, Debug)]
 pub struct S3Config {
     bucket: String,
+    // Required, because AWS require you to specify the correct region for your
+    // bucket.
+    region: String,
 }
 
 #[async_trait]
@@ -25,7 +29,8 @@ impl IntoSecretStorage for S3Config {
     type Impl = S3SecretStorage;
 
     async fn build(self) -> Self::Impl {
-        let config = aws_config::load_from_env().await;
+        let region = Region::new(self.region);
+        let config = aws_config::from_env().region(region).load().await;
         let client = Client::new(&config);
 
         S3SecretStorage::new(client, self.bucket)
