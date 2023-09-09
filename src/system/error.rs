@@ -35,14 +35,20 @@ pub enum MountSecretsError {
     NoSuchSecret(String),
     #[error("error exposing secrets as files: {0}")]
     ExposingFilesFailure(#[from] FileExposureError),
+    #[error("error finding old secret mounts to delete: {0}")]
+    ListingOldSymlinks(std::io::Error),
+    #[error("error deleting old generation dir: {0}")]
+    DeletingOldDir(std::io::Error),
+    #[error("error unmounting old generation: {0}")]
+    UnmountingOldGeneration(#[from] UnmountRamfsError),
 }
 
 #[derive(Error, Debug)]
 pub enum UnmountSecretsError {
     #[error("error checking if device mounted: {0}")]
     CheckMountedError(#[from] CheckMountedError),
-    #[error("error invoking umount: {0}")]
-    InvokingCommand(std::io::Error),
     #[error("error removing symlink: {0}")]
     RemovingSymlink(std::io::Error),
+    #[error("error unmounting old filesystem: {0}")]
+    UnmountingFilesystem(#[from] UnmountRamfsError),
 }

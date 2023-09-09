@@ -1,33 +1,39 @@
-use std::collections::HashMap;
 use std::os::unix::process::ExitStatusExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
 
 pub use system::UnmountSecretsError;
 
-use super::State;
+use super::{ExposureLoadingError, State};
 use crate::age::{get_identities, DecryptionError};
-use crate::{system, SecretError, SecretStorage};
+use crate::{system, CliExposureSpec, SecretError, SecretStorage};
 
 pub async fn mount<S, E>(
     state: &State<S, E>,
     mount_point: &Path,
     secret_dir: &Path,
+    config_files: &[PathBuf],
+    cli_exposures: Vec<CliExposureSpec>,
 ) -> Result<ExitStatus, MountSecretsError>
 where
-    S: SecretStorage,
+    S: SecretStorage<Error = E>,
     E: SecretError,
     <S as SecretStorage>::Error: 'static,
 {
     let identities = get_identities(&state.private_key_paths)?;
 
-    let exposures = HashMap::new();
+    let mut exposures = state.get_exposures(config_files).await?;
+    exposures.add_cli_config(cli_exposures);
+
+    if !exposures.envs.is_empty() {
+        panic!("env exposures on system mount");
+    }
 
     system::mount(
         mount_point,
         secret_dir,
         &state.secrets,
-        &exposures,
+        &exposures.files,
         &identities,
         &state.storage,
     )
@@ -51,4 +57,6 @@ pub enum MountSecretsError {
     MountingSecrets(#[from] system::MountSecretsError),
     #[error("error reading identities: {0}")]
     ReadingIdentities(#[from] DecryptionError),
+    #[error("error loading exposures: {0}")]
+    LoadingExposures(#[from] ExposureLoadingError),
 }
