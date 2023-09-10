@@ -69,6 +69,12 @@ in
       export PATH="${gnugrep}/bin:${coreutils}/bin:@out@/sw/bin:/usr/bin:/bin:/usr/sbin:/sbin"
       ${exports}
 
+      # Launchd does not let us delay launching wait until the
+      # network is up :shrug:
+      while ! route -n get 0.0.0.0 > /dev/null; do
+        sleep 1
+      done
+
       ${mountScript}
       exit 0
     '';
