@@ -1,6 +1,3 @@
-// use nix::sys::signal::Signal::SIGEMT;
-#[cfg(target_os = "macos")]
-use nix::libc::SIGEMT;
 use signal_hook::consts::*;
 use tokio::process::Command;
 

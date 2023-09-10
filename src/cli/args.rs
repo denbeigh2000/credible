@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
+use simplelog::LevelFilter;
 
 use crate::{CliExposureSpec, GroupWrapper, UserWrapper};
 
@@ -15,6 +16,10 @@ pub struct CliParams {
     /// Comma-separated list of local private keys to use for decryption.
     /// If not provided, $HOME/.ssh/id_rsa and $HOME/.ssh/id_ecsda are checked.
     pub private_key_paths: Option<Vec<PathBuf>>,
+
+    #[arg(short, long, env = "CREDIBLE_LOG_LEVEL", default_value = "warn")]
+    /// Level to display logs at (off, error, warn, info, debug, trace)
+    pub log_level: LevelFilter,
 
     #[command(subcommand)]
     pub action: Actions,

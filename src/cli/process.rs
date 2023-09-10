@@ -19,7 +19,10 @@ where
 {
     let mut exposures = state.get_exposures(config_files).await?;
     exposures.add_cli_config(exposure_flags);
+    log::debug!("{} env exposures", exposures.envs.len());
+    log::debug!("{} file exposures", exposures.files.len());
     let identities = get_identities(&state.private_key_paths)?;
+    log::debug!("found {} identities", identities.len());
     let result = process::run_process(
         argv,
         &state.secrets,
@@ -28,6 +31,13 @@ where
         &state.storage,
     )
     .await?;
+    log::debug!(
+        "process exited with status {}",
+        result
+            .code()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| String::from("<unknown>"))
+    );
     Ok(result)
 }
 

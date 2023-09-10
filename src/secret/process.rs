@@ -29,6 +29,7 @@ where
             .await
             .map_err(|e| EnvExposureError::FetchingSecret(Box::new(e)))?;
         for env_spec in exposure_set.iter() {
+            log::debug!("exposing {} as {}", secret.name, &env_spec.name);
             cmd.env(&env_spec.name, &buf);
         }
 

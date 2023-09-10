@@ -22,6 +22,7 @@ where
     <S as SecretStorage>::Error: 'static,
 {
     let mut buf = vec![];
+    log::debug!("mounting {} exposures", exposures.len());
     for (secret, exposure_set) in exposures {
         let reader = storage
             .read(&secret.path)
@@ -53,6 +54,13 @@ where
                 file.write_all(&buf)
                     .await
                     .map_err(FileExposureError::WritingToFile)?;
+
+                log::debug!(
+                    "wrote {} to {} with permissions {:#o}",
+                    secret.name,
+                    dest_path.as_path().to_string_lossy(),
+                    mode,
+                );
             }
 
             nix::unistd::chown(dest_path.as_path(), owner, group)
@@ -60,6 +68,7 @@ where
 
             if let Some(p) = &file_spec.vanity_path {
                 if p.is_symlink() {
+                    log::debug!("removing {}", p.to_string_lossy());
                     tokio::fs::remove_file(p)
                         .await
                         .map_err(FileExposureError::CreatingSymlink)?;
@@ -67,6 +76,12 @@ where
                 tokio::fs::symlink(&dest_path, p)
                     .await
                     .map_err(FileExposureError::CreatingSymlink)?;
+
+                log::debug!(
+                    "symlinked {} to {}",
+                    p.to_string_lossy(),
+                    dest_path.to_string_lossy()
+                );
             }
         }
 

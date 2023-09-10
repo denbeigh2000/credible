@@ -13,12 +13,14 @@ aws-sdk-s3 = "0.28.0"
 clap = { version = "4.3.12", features = ["derive", "env"] }
 futures = "0.3.28"
 lazy_static = "1.4.0"
+log = "0.4.20"
 nix = { version = "0.26.2", features = ["user", "fs", "mount", "time"] }
 serde = { version = "1.0.171", features = ["derive"] }
 serde_with = "3.0.0"
 serde_yaml = "0.9.25"
 signal-hook = "0.3.17"
 signal-hook-tokio = { version = "0.3.1", features = ["futures-v0_3"] }
+simplelog = "0.12.1"
 tempfile = "3.7.0"
 thiserror = "1.0.43"
 tokio = { version = "1.29.1", features = ["full"] }

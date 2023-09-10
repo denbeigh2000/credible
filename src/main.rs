@@ -6,6 +6,8 @@ use clap::Parser;
 use credible::cli::Actions;
 use credible::StorageConfig::S3;
 use credible::{cli, SecretManagerConfig};
+use log::SetLoggerError;
+use simplelog::{ConfigBuilder, LevelFilter};
 use thiserror::Error;
 
 use crate::cli::CliParams;
@@ -28,6 +30,8 @@ enum MainError {
     ReadingConfigFile(std::io::Error),
     #[error("invalid config file: {0}")]
     ParsingConfigFile(#[from] serde_yaml::Error),
+    #[error("couldn't configure logger: {0}")]
+    SettingLogger(#[from] SetLoggerError),
     #[error("error: {0}")]
     Executing(#[from] cli::Error),
 }
@@ -37,6 +41,7 @@ fn find_config_file() -> Option<PathBuf> {
     loop {
         let candidate = directory.join("credible.yaml");
         if candidate.exists() {
+            log::debug!("using config at {}", candidate.to_string_lossy());
             return Some(candidate);
         }
 
@@ -47,14 +52,29 @@ fn find_config_file() -> Option<PathBuf> {
     }
 }
 
+fn init_logger(level: LevelFilter) -> Result<(), SetLoggerError> {
+    let config = ConfigBuilder::default()
+        .add_filter_allow_str("credible")
+        .build();
+
+    simplelog::TermLogger::init(
+        level,
+        config,
+        simplelog::TerminalMode::Stderr,
+        simplelog::ColorChoice::Auto,
+    )
+}
+
 async fn real_main() -> Result<ExitStatus, MainError> {
     let args = CliParams::try_parse()?;
+    init_logger(args.log_level)?;
     let config_file = args
         .config_file
         .or_else(find_config_file)
         .ok_or(MainError::NoConfigFile)?;
     let data = fs::read(config_file).map_err(MainError::ReadingConfigFile)?;
     let config: SecretManagerConfig = serde_yaml::from_slice(&data)?;
+    log::trace!("config loaded");
 
     // TODO: Have some better registry/DI-style pattern here for better
     // extension
@@ -86,7 +106,7 @@ async fn main() {
             1
         }
         Err(e) => {
-            eprintln!("error: {e}");
+            log::error!("error: {e}");
             1
         }
     };

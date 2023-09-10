@@ -68,10 +68,12 @@ where
     // files on-disk in case of crash
     expose_env(&mut cmd, store, &env_pairs, identities).await?;
     expose_files(tmpdir.as_ref(), store, &file_pairs, identities).await?;
+    log::debug!("files exposed");
 
     // Spawn the process, and wait for it to finish
     let mut process_handle = cmd.spawn().map_err(ProcessRunningError::ForkingProcess)?;
     let pid = process_handle.id().expect("spawned process has no PID");
+    log::debug!("process running with id {}", pid);
     let process_fut = process_handle.wait();
     tokio::pin!(process_fut);
 
@@ -85,10 +87,11 @@ where
             signal = signals.next() => {
                 // NOTE: we should always be able to receive signals through the life of our process
                 let signal = signal.expect("signal iterator ended prematurely");
+                log::debug!("received signal {}", signal);
                 if let Err(e) = kill(pid, signal).await {
                     // NOTE: If this is due to the process finishing, we can
                     // just exit the next loop.
-                    eprintln!("{e}");
+                    log::warn!("{e}");
                 }
             },
         }
@@ -106,7 +109,7 @@ where
         // Failure to delete these isn't worth returning an error, because
         // these are just vanity symlinks that were pointing to our
         // now-deleted temp dir
-        eprintln!("{e}");
+        log::warn!("{e}");
     }
 
     Ok(result)

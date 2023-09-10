@@ -32,6 +32,7 @@ where
         None => todo!("Secure tempdir editing"),
     };
 
+    log::debug!("uploading from {}", source_file.unwrap().to_string_lossy());
     let encrypted_data = encrypt_bytes(data, &secret.encryption_keys)
         .await
         .map_err(CreateUpdateSecretError::EncryptingSecret)?;
@@ -77,12 +78,20 @@ where
             .await
             .map_err(EditSecretError::OpeningTempFile)?;
     }
+    log::debug!("secret written to {}", temp_file_path.to_string_lossy());
+
+    log::debug!(
+        "executing `{} {}`",
+        editor,
+        temp_file_path.to_string_lossy()
+    );
     let editor_result = Command::new(editor)
         .arg(temp_file_path)
         .status()
         .await
         .map_err(EditSecretError::InvokingEditor)?;
 
+    log::debug!("editor exited with status {}", editor_result);
     if !editor_result.success() {
         return Err(EditSecretError::EditorBadExit(editor_result));
     }

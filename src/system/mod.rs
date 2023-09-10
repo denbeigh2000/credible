@@ -58,6 +58,8 @@ where
             .map_err(MountSecretsError::CreatingFilesFailure);
     }
 
+    log::debug!("system-mounting {} exposures", exposures.len());
+
     mount_persistent_ramfs(&mount_point)
         .await
         .map_err(MountSecretsError::RamfsCreationFailure)?;
@@ -112,6 +114,7 @@ pub async fn unmount(
 
     if let Some(p) = unlink_dir {
         if p.is_symlink() {
+            log::debug!("unmounting {}", p.to_string_lossy());
             tokio::fs::remove_file(p)
                 .await
                 .map_err(UnmountSecretsError::RemovingSymlink)?;
