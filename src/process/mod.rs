@@ -77,13 +77,19 @@ where
 
     let result = loop {
         tokio::select! {
+            // TODO: Something about this is causing us to lose our task and
+            // exit early?
             finished_process = &mut process_fut => {
                 break finished_process.map_err(ProcessRunningError::JoiningProcess)?;
             },
             signal = signals.next() => {
                 // NOTE: we should always be able to receive signals through the life of our process
                 let signal = signal.expect("signal iterator ended prematurely");
-                kill(pid, signal).await.map_err(ProcessRunningError::SignallingChildProcess)?;
+                if let Err(e) = kill(pid, signal).await {
+                    // NOTE: If this is due to the process finishing, we can
+                    // just exit the next loop.
+                    eprintln!("{e}");
+                }
             },
         }
     };
