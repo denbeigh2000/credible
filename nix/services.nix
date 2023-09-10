@@ -1,12 +1,12 @@
 { lib
 , credible
 , writeText
-, configFile
+, configFiles
 , secretDir
 , mountPoint
 , owner
 , group
-, mountConfigs
+, exposureConfigs
 , mountConfigPaths
 , privateKeyPaths
 , gnugrep
@@ -15,24 +15,26 @@
 
 let
   inherit (lib) mapAttrsToList concatStringsSep optionalString;
+  inherit (builtins) map;
+
+  writeFile = f: writeText "credible.json" (builtins.toJSON f);
 
   mountScript = ''
     ${credible}/bin/credible system mount
   '';
 
-  writtenConfigFile = writeText "credible.json" (builtins.toJSON configFile);
+  writtenConfigFiles = map writeFile configFiles;
 
   commaJoin = things: concatStringsSep "," things;
 
   environment = {
-    CREDIBLE_CONFIG_FILE = writtenConfigFile;
+    CREDIBLE_CONFIG_FILES = commaJoin (writtenConfigFiles ++ mountConfigPaths);
     CREDIBLE_MOUNT_POINT = mountPoint;
     CREDIBLE_SECRET_DIR = secretDir;
     CREDIBLE_OWNER_USER = owner;
     CREDIBLE_OWNER_GROUP = group;
     CREDIBLE_PRIVATE_KEY_PATHS = commaJoin privateKeyPaths;
-    CREDIBLE_MOUNT_CONFIGS = commaJoin mountConfigs;
-    CREDIBLE_MOUNT_CONFIG_PATHS = commaJoin mountConfigPaths;
+    CREDIBLE_EXPOSURE_CONFIGS = commaJoin exposureConfigs;
   };
 
   shouldAssign = val: !(val == "" || val == [ ]);

@@ -1,15 +1,12 @@
-use std::path::PathBuf;
 use std::process::ExitStatus;
 
 use super::{ExposureLoadingError, State};
 use crate::age::{get_identities, DecryptionError};
-use crate::{process, CliExposureSpec, SecretError, SecretStorage};
+use crate::{process, SecretError, SecretStorage};
 
 pub async fn run<S, E>(
     state: &State<S, E>,
     argv: &[String],
-    exposure_flags: Vec<CliExposureSpec>,
-    config_files: &[PathBuf],
 ) -> Result<ExitStatus, ProcessRunningError>
 where
     S: SecretStorage<Error = E>,
@@ -17,16 +14,14 @@ where
     <S as SecretStorage>::Error: 'static + Sized,
     process::ProcessRunningError: From<E>,
 {
-    let mut exposures = state.get_exposures(config_files).await?;
-    exposures.add_cli_config(exposure_flags);
-    log::debug!("{} env exposures", exposures.envs.len());
-    log::debug!("{} file exposures", exposures.files.len());
+    log::debug!("{} env exposures", state.exposures.envs.len());
+    log::debug!("{} file exposures", state.exposures.files.len());
     let identities = get_identities(&state.private_key_paths)?;
     log::debug!("found {} identities", identities.len());
     let result = process::run_process(
         argv,
         &state.secrets,
-        &exposures,
+        &state.exposures,
         &identities,
         &state.storage,
     )

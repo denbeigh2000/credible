@@ -1,16 +1,18 @@
 use std::path::PathBuf;
 use std::process::ExitStatus;
-use std::{fs, unimplemented};
+use std::unimplemented;
 
 use clap::Parser;
 use credible::cli::Actions;
+use credible::util::partition_specs;
 use credible::StorageConfig::S3;
 use credible::{cli, SecretManagerConfig};
 use log::SetLoggerError;
 use simplelog::{ConfigBuilder, LevelFilter};
 use thiserror::Error;
+use tokio::fs;
 
-use crate::cli::CliParams;
+use crate::cli::{CliParams, StateBuilderError};
 
 /*
 * credible system mount
@@ -26,10 +28,12 @@ enum MainError {
     ParsingCliArgs(#[from] clap::Error),
     #[error("no config file given, and no credible.yaml found")]
     NoConfigFile,
-    #[error("couldn't read config file: {0}")]
-    ReadingConfigFile(std::io::Error),
+    #[error("couldn't read config file at {0}: {1}")]
+    ReadingConfigFile(PathBuf, std::io::Error),
     #[error("invalid config file: {0}")]
     ParsingConfigFile(#[from] serde_yaml::Error),
+    #[error("bad command line arguments: {0}")]
+    SettingUpState(#[from] StateBuilderError),
     #[error("couldn't configure logger: {0}")]
     SettingLogger(#[from] SetLoggerError),
     #[error("error: {0}")]
@@ -68,27 +72,47 @@ fn init_logger(level: LevelFilter) -> Result<(), SetLoggerError> {
 async fn real_main() -> Result<ExitStatus, MainError> {
     let args = CliParams::try_parse()?;
     init_logger(args.log_level)?;
-    let config_file = args
-        .config_file
-        .or_else(find_config_file)
-        .ok_or(MainError::NoConfigFile)?;
-    let data = fs::read(config_file).map_err(MainError::ReadingConfigFile)?;
-    let config: SecretManagerConfig = serde_yaml::from_slice(&data)?;
+    let config_file = match args.config_file.is_empty() {
+        false => args.config_file,
+        true => find_config_file()
+            .map(|f| vec![f])
+            .ok_or(MainError::NoConfigFile)?,
+    };
     log::trace!("config loaded");
 
-    // TODO: Have some better registry/DI-style pattern here for better
-    // extension
-    let cfg = match config.storage {
-        S3(c) => c,
-        _ => unimplemented!(),
-    };
+    let mut builder = cli::StateBuilder::default();
+    for file in config_file {
+        let data = fs::read(&file)
+            .await
+            .map_err(|e| MainError::ReadingConfigFile(file.to_path_buf(), e))?;
+        let config: SecretManagerConfig = serde_yaml::from_slice(&data)?;
 
-    let state = cli::StateBuilder::default()
-        .set_secrets(config.secrets)
-        .set_private_key_paths(args.private_key_paths)
-        .build(cfg)
-        .await;
+        if let Some(c) = config.exposures {
+            let (files, envs) = partition_specs(c);
+            builder.add_file_exposures(files)?;
+            builder.add_env_exposures(envs)?;
+        }
 
+        if let Some(secrets) = config.secrets {
+            builder.add_secrets(secrets);
+        }
+
+        if let Some(storage) = config.storage {
+            builder = match storage {
+                S3(s) => builder.set_secret_storage(s).await?,
+                _ => unimplemented!(),
+            };
+        }
+    }
+
+    let (files, envs) = partition_specs(args.exposure);
+    builder.add_file_exposures(files)?;
+    builder.add_env_exposures(envs)?;
+
+    if let Some(paths) = args.private_key_paths {
+        builder.set_identities(paths);
+    }
+    let state = builder.build().await?;
     let code = match args.action {
         Actions::RunCommand(args) => cli::process(&state, args).await?,
         Actions::System(cmd) => cli::system(&state, cmd).await?,

@@ -14,21 +14,21 @@ let
 
   inherit (pkgs.stdenvNoCC.hostPlatform) isDarwin isLinux;
 
-  localTypes = callPackage ./types.nix {};
+  localTypes = callPackage ./types.nix { };
   inherit (localTypes) secretType;
 
   cfg = config.credible;
 
-  configFile = writeText "credible.json" (builtins.toJSON {
+  configFile = {
     inherit (cfg) secrets;
     storage = {
       type = "S3";
       inherit (cfg) bucket;
     };
-  });
+  };
 
   services = callPackage ./services.nix {
-    inherit configFile;
+    configFiles = [ configFile ];
     inherit (cfg) secretDir secretRoot owner group privateKeyPaths;
   };
 

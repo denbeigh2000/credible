@@ -3,14 +3,23 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 use simplelog::LevelFilter;
 
-use crate::{CliExposureSpec, GroupWrapper, UserWrapper};
+use crate::secret::ExposureSpec;
+use crate::{GroupWrapper, UserWrapper};
 
 #[derive(Parser, Debug)]
 pub struct CliParams {
-    #[arg(short, long, env = "CREDIBLE_CONFIG_FILE")]
-    /// Path to the configuration file. If not provided, will search upward for
+    #[arg(short, long, env = "CREDIBLE_CONFIG_FILES", value_delimiter = ',')]
+    /// Path to a configuration file. Can be repeated to compose multiple
+    /// config files. If not provided, will search upward for
     /// files named credible.yaml.
-    pub config_file: Option<PathBuf>,
+    /// Specify multiple in an environment variable by separating with commas
+    pub config_file: Vec<PathBuf>,
+
+    /// Secrets to expose, in the following format:
+    /// - env:secret-name:ENV_VAR_NAME
+    /// - file:secret-name:/path/to/file
+    #[arg(long, env = "CREDIBLE_EXPOSURE_CONFIGS", value_delimiter = ',')]
+    pub exposure: Vec<ExposureSpec>,
 
     #[arg(short, long, env = "CREDIBLE_PRIVATE_KEY_PATHS", value_delimiter = ',')]
     /// Comma-separated list of local private keys to use for decryption.
@@ -82,14 +91,6 @@ pub struct MountArgs {
     /// Default group to own secrets (if not provided, current group will be
     /// used)
     pub group: Option<GroupWrapper>,
-
-    /// Secrets to expose to the executed command, in the following format:
-    /// - file:secret-name:/path/to/file
-    #[arg(long, env = "CREDIBLE_MOUNT_CONFIGS", value_delimiter = ',')]
-    pub mount: Vec<CliExposureSpec>,
-    /// Specify YAML files to load exposure specs from
-    #[arg(long, env = "CREDIBLE_MOUNT_CONFIG_PATHS", value_delimiter = ',')]
-    pub mount_config: Vec<PathBuf>,
 }
 
 #[derive(clap::Args, Debug)]
@@ -110,15 +111,6 @@ pub struct UnmountArgs {
 
 #[derive(clap::Args, Debug)]
 pub struct RunCommandArgs {
-    #[clap(long, short)]
-    /// Secrets to expose to the executed command, in the following formats:
-    /// - env:secret-name:ENV_VAR_NAME
-    /// - file:secret-name:/path/to/file
-    #[arg(long, env = "CREDIBLE_MOUNT_CONFIGS", value_delimiter = ',')]
-    pub mount: Vec<CliExposureSpec>,
-    /// Specify YAML files to load exposure specs from
-    #[arg(long, env = "CREDIBLE_MOUNT_CONFIG_PATHS", value_delimiter = ',')]
-    pub mount_config: Vec<PathBuf>,
     /// Command arguments to run
     pub cmd: Vec<String>,
 }
@@ -129,13 +121,15 @@ pub struct UploadCommandArgs {
     pub secret_name: String,
 
     /// Plaintext file to read content from
+    #[clap(default_value = "/dev/stdin")]
     pub source_file: PathBuf,
 }
 
 #[derive(clap::Args, Debug)]
 pub struct EditCommandArgs {
     #[arg(short, long, env = "EDITOR")]
+    /// Editor to open for editing the secret
     pub editor: String,
-    #[arg(short, long, env)]
+    /// Name of the secret to edit
     pub secret_name: String,
 }

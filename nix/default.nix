@@ -15,13 +15,13 @@
     , secretDir ? ""
     , owner ? ""
     , group ? ""
-    , mountConfigs ? [ ]
+    , exposureConfigs ? [ ]
     , mountConfigPaths ? [ ]
     }:
     let
       services = pkgs.callPackage ./services.nix {
         configFile = { inherit secrets storage; };
-        inherit secretDir mountPoint owner group privateKeyPaths mountConfigs
+        inherit secretDir mountPoint owner group privateKeyPaths exposureConfigs
           mountConfigPaths;
       };
     in

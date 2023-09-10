@@ -14,12 +14,13 @@ pub enum ExposureSpec {
 }
 
 impl ExposureSpec {
-    pub fn file_from_str(path: &str) -> Self {
+    pub fn file_from_str(secret_name: String, path: &str) -> Self {
         let vanity_path = Some(path.parse().expect("infallible error"));
         let mode = None;
         let group = None;
         let owner = None;
         Self::File(Box::new(FileExposeArgs {
+            secret_name,
             vanity_path,
             mode,
             owner,
@@ -27,46 +28,29 @@ impl ExposureSpec {
         }))
     }
 
-    pub fn env_from_str(name: &str) -> Self {
+    pub fn env_from_str(secret_name: String, name: &str) -> Self {
         let name = name.parse().expect("infallible error");
-        Self::Env(EnvExposeArgs { name })
+        Self::Env(EnvExposeArgs { secret_name, name })
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct CliExposureSpec {
-    pub secret_name: String,
-    pub exposure_spec: ExposureSpec,
-}
-
-impl From<CliExposureSpec> for (String, ExposureSpec) {
-    fn from(val: CliExposureSpec) -> Self {
-        (val.secret_name, val.exposure_spec)
-    }
-}
-
-impl FromStr for CliExposureSpec {
+impl FromStr for ExposureSpec {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let parts = s.split(':').collect::<Vec<_>>();
-        let (secret_name, exposure_spec) = match parts[..] {
-            ["file", secret_name, path] => (secret_name, ExposureSpec::file_from_str(path)),
-            ["env", secret_name, name] => (secret_name, ExposureSpec::env_from_str(name)),
+        Ok(match parts[..] {
+            ["file", name, path] => ExposureSpec::file_from_str(name.to_string(), path),
+            ["env", name, env] => ExposureSpec::env_from_str(name.to_string(), env),
             // TODO
             _ => return Err(format!("invalid cli exposure spec: {s}")),
-        };
-
-        let secret_name = secret_name.to_string();
-        Ok(Self {
-            secret_name,
-            exposure_spec,
         })
     }
 }
 
 #[derive(Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct FileExposeArgs {
+    pub secret_name: String,
     #[serde(alias = "path")]
     pub vanity_path: Option<PathBuf>,
     pub mode: Option<u32>,
@@ -76,6 +60,7 @@ pub struct FileExposeArgs {
 
 #[derive(Deserialize, Clone, Debug, Hash, Eq, PartialEq)]
 pub struct EnvExposeArgs {
+    pub secret_name: String,
     pub name: String,
 }
 
@@ -86,43 +71,25 @@ pub struct Exposures {
 }
 
 impl Exposures {
-    pub fn add_config<I: IntoIterator<Item = (String, Vec<ExposureSpec>)>>(&mut self, config: I) {
-        config.into_iter().for_each(|(name, specs)| {
-            for spec in specs {
-                match spec {
-                    ExposureSpec::Env(env_name) => {
-                        match self.envs.get_mut(&name) {
-                            Some(v) => v.push(env_name),
-                            None => {
-                                self.envs.insert(name.clone(), vec![env_name]);
-                            }
-                        };
-                    }
-
-                    ExposureSpec::File(file_path) => {
-                        match self.files.get_mut(&name) {
-                            Some(v) => v.push(*file_path),
-                            None => {
-                                self.files.insert(name.clone(), vec![*file_path]);
-                            }
-                        };
-                    }
-                }
-            }
-        });
-    }
-
-    pub fn add_cli_config<I: IntoIterator<Item = CliExposureSpec>>(&mut self, configs: I) {
-        let mut cli_exposure_map: HashMap<String, Vec<ExposureSpec>> = HashMap::new();
-        for exposure in configs {
-            let (name, exp) = exposure.into();
-            match cli_exposure_map.get_mut(&name) {
-                Some(v) => v.push(exp),
+    pub fn add_files<I: IntoIterator<Item = FileExposeArgs>>(&mut self, specs: I) {
+        for spec in specs {
+            match self.files.get_mut(&spec.secret_name) {
+                Some(v) => v.push(spec),
                 None => {
-                    cli_exposure_map.insert(name, vec![exp]);
+                    self.files.insert(spec.secret_name.clone(), vec![spec]);
                 }
             };
         }
-        self.add_config(cli_exposure_map);
+    }
+
+    pub fn add_envs<I: IntoIterator<Item = EnvExposeArgs>>(&mut self, specs: I) {
+        for spec in specs {
+            match self.envs.get_mut(&spec.secret_name) {
+                Some(v) => v.push(spec),
+                None => {
+                    self.envs.insert(spec.secret_name.clone(), vec![spec]);
+                }
+            };
+        }
     }
 }

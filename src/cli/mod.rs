@@ -32,7 +32,7 @@ where
     <S as SecretStorage>::Error: 'static,
     ProcessRunningError: From<E>,
 {
-    let res = process::run(state, &args.cmd, args.mount, &args.mount_config).await?;
+    let res = process::run(state, &args.cmd).await?;
     Ok(res)
 }
 
@@ -43,16 +43,7 @@ where
     <S as SecretStorage>::Error: 'static,
 {
     match action {
-        SystemAction::Mount(a) => {
-            system::mount(
-                state,
-                &a.mount_point,
-                &a.secret_dir,
-                &a.mount_config,
-                a.mount,
-            )
-            .await?
-        }
+        SystemAction::Mount(a) => system::mount(state, &a.mount_point, &a.secret_dir).await?,
         SystemAction::Unmount(a) => system::unmount(&a.mount_point, &a.secret_dir).await?,
     };
 

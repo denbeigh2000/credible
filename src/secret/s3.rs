@@ -2,7 +2,7 @@ use std::path::Path;
 
 use async_trait::async_trait;
 use aws_sdk_s3::config::Region;
-use aws_sdk_s3::error::{DisplayErrorContext, SdkError};
+use aws_sdk_s3::error::SdkError;
 use aws_sdk_s3::operation::get_object::GetObjectError;
 use aws_sdk_s3::operation::put_object::PutObjectError;
 use aws_sdk_s3::primitives::{ByteStream, ByteStreamError};

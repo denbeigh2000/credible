@@ -1,19 +1,17 @@
 use std::os::unix::process::ExitStatusExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::ExitStatus;
 
 pub use system::UnmountSecretsError;
 
 use super::{ExposureLoadingError, State};
 use crate::age::{get_identities, DecryptionError};
-use crate::{system, CliExposureSpec, SecretError, SecretStorage};
+use crate::{system, SecretError, SecretStorage};
 
 pub async fn mount<S, E>(
     state: &State<S, E>,
     mount_point: &Path,
     secret_dir: &Path,
-    config_files: &[PathBuf],
-    cli_exposures: Vec<CliExposureSpec>,
 ) -> Result<ExitStatus, MountSecretsError>
 where
     S: SecretStorage<Error = E>,
@@ -22,10 +20,7 @@ where
 {
     let identities = get_identities(&state.private_key_paths)?;
 
-    let mut exposures = state.get_exposures(config_files).await?;
-    exposures.add_cli_config(cli_exposures);
-
-    if !exposures.envs.is_empty() {
+    if !state.exposures.envs.is_empty() {
         panic!("env exposures on system mount");
     }
 
@@ -33,7 +28,7 @@ where
         mount_point,
         secret_dir,
         &state.secrets,
-        &exposures.files,
+        &state.exposures.files,
         &identities,
         &state.storage,
     )

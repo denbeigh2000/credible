@@ -3,7 +3,8 @@ use std::pin::Pin;
 
 use tokio::io::AsyncRead;
 
-use crate::Secret;
+use crate::secret::{EnvExposeArgs, FileExposeArgs};
+use crate::{ExposureSpec, Secret};
 
 pub struct BoxedAsyncReader {
     inner: Box<dyn AsyncRead + Unpin + Send + 'static>,
@@ -47,4 +48,19 @@ where
                 .ok_or_else(|| name.into())
         })
         .collect::<Result<Vec<_>, _>>()
+}
+
+pub fn partition_specs<I: IntoIterator<Item = ExposureSpec>>(
+    items: I,
+) -> (Vec<FileExposeArgs>, Vec<EnvExposeArgs>) {
+    items
+        .into_iter()
+        .fold((vec![], vec![]), |(mut fs, mut es), item| {
+            match item {
+                ExposureSpec::Env(s) => es.push(s),
+                ExposureSpec::File(s) => fs.push(*s),
+            };
+
+            (fs, es)
+        })
 }

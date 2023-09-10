@@ -6,7 +6,7 @@ pub mod system;
 pub use system::{MountSecretsError, UnmountSecretsError};
 mod secret;
 use secret::S3Config;
-pub use secret::{CliExposureSpec, Exposures, Secret, SecretError, SecretStorage};
+pub use secret::{ExposureSpec, Exposures, Secret, SecretError, SecretStorage};
 
 mod process_utils;
 
@@ -20,7 +20,7 @@ pub mod cli;
 mod wrappers;
 pub use wrappers::{GroupWrapper, UserWrapper};
 
-pub(crate) mod util;
+pub mod util;
 
 #[derive(Deserialize, Debug)]
 pub struct RuntimeKey {
@@ -30,8 +30,9 @@ pub struct RuntimeKey {
 
 #[derive(Deserialize, Debug)]
 pub struct SecretManagerConfig {
-    pub secrets: Vec<Secret>,
-    pub storage: StorageConfig,
+    pub exposures: Option<Vec<ExposureSpec>>,
+    pub secrets: Option<Vec<Secret>>,
+    pub storage: Option<StorageConfig>,
 }
 
 #[derive(Deserialize, Debug)]
