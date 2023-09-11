@@ -6,8 +6,6 @@
 , mountPoint
 , owner
 , group
-, exposureConfigs
-, mountConfigPaths
 , privateKeyPaths
 , gnugrep
 , coreutils
@@ -28,13 +26,12 @@ let
   commaJoin = things: concatStringsSep "," things;
 
   environment = {
-    CREDIBLE_CONFIG_FILES = commaJoin (writtenConfigFiles ++ mountConfigPaths);
+    CREDIBLE_CONFIG_FILES = commaJoin writtenConfigFiles;
     CREDIBLE_MOUNT_POINT = mountPoint;
     CREDIBLE_SECRET_DIR = secretDir;
     CREDIBLE_OWNER_USER = owner;
     CREDIBLE_OWNER_GROUP = group;
     CREDIBLE_PRIVATE_KEY_PATHS = commaJoin privateKeyPaths;
-    CREDIBLE_EXPOSURE_CONFIGS = commaJoin exposureConfigs;
   };
 
   shouldAssign = val: !(val == "" || val == [ ]);

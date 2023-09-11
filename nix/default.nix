@@ -8,21 +8,19 @@
   mkTool =
     { name ? "credible"
     , pkgs
-    , secrets
     , storage
+    , secrets ? [ ]
+    , exposures ? [ ]
     , privateKeyPaths ? [ ]
     , mountPoint ? ""
     , secretDir ? ""
     , owner ? ""
     , group ? ""
-    , exposureConfigs ? [ ]
-    , mountConfigPaths ? [ ]
     }:
     let
       services = pkgs.callPackage ./services.nix {
-        configFile = { inherit secrets storage; };
-        inherit secretDir mountPoint owner group privateKeyPaths exposureConfigs
-          mountConfigPaths;
+        configFiles = [{ inherit secrets storage exposures; }];
+        inherit secretDir mountPoint owner group privateKeyPaths;
       };
     in
     pkgs.writeShellScriptBin name ''
