@@ -11,6 +11,7 @@ use log::SetLoggerError;
 use simplelog::{ConfigBuilder, LevelFilter};
 use thiserror::Error;
 use tokio::fs;
+use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::cli::{CliParams, StateBuilderError};
 
@@ -28,6 +29,8 @@ enum MainError {
     ParsingCliArgs(#[from] clap::Error),
     #[error("no config file given, and no credible.yaml found")]
     NoConfigFile,
+    #[error("couldn't read credentials file at {0}: {1}")]
+    ReadingCredentialsFile(PathBuf, std::io::Error),
     #[error("couldn't read config file at {0}: {1}")]
     ReadingConfigFile(PathBuf, std::io::Error),
     #[error("invalid config file: {0}")]
@@ -56,6 +59,17 @@ fn find_config_file() -> Option<PathBuf> {
     }
 }
 
+fn find_credentials_file() -> Option<PathBuf> {
+    let home = std::env::var("$HOME").ok().map(PathBuf::from)?;
+    // TODO: XDG etc?
+    let path = home.join("/.config/credible/credentials");
+
+    match path.is_file() {
+        true => Some(path),
+        false => None,
+    }
+}
+
 fn init_logger(level: LevelFilter) -> Result<(), SetLoggerError> {
     let config = ConfigBuilder::default()
         .add_filter_allow_str("credible")
@@ -79,6 +93,24 @@ async fn real_main() -> Result<ExitStatus, MainError> {
             .ok_or(MainError::NoConfigFile)?,
     };
     log::trace!("config loaded");
+
+    if let Some(f) = args.credentials_file.or_else(find_credentials_file) {
+        let mut lines = match fs::File::open(&f).await {
+            Ok(r) => BufReader::new(r).lines(),
+            Err(e) => return Err(MainError::ReadingCredentialsFile(f, e)),
+        };
+
+        loop {
+            match lines.next_line().await {
+                Ok(Some(line)) => match line.split_once('=') {
+                    Some((k, v)) => std::env::set_var(k, v),
+                    None => continue,
+                },
+                Ok(None) => break,
+                Err(e) => return Err(MainError::ReadingCredentialsFile(f, e)),
+            }
+        }
+    }
 
     let mut builder = cli::StateBuilder::default();
     for file in config_file {

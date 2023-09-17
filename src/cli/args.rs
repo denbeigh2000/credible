@@ -12,23 +12,36 @@ pub struct CliParams {
     /// Path to a configuration file. Can be repeated to compose multiple
     /// config files. If not provided, will search upward for
     /// files named credible.yaml.
+    ///
     /// Specify multiple in an environment variable by separating with commas
     pub config_file: Vec<PathBuf>,
 
-    /// Secrets to expose, in the following format:
+    /// Secrets to expose, in the following formats:
+    ///
     /// - env:secret-name:ENV_VAR_NAME
+    ///
     /// - file:secret-name:/path/to/file
+    ///
     #[arg(long, env = "CREDIBLE_EXPOSURE_CONFIGS", value_delimiter = ',')]
     pub exposure: Vec<ExposureSpec>,
 
     #[arg(short, long, env = "CREDIBLE_PRIVATE_KEY_PATHS", value_delimiter = ',')]
     /// Comma-separated list of local private keys to use for decryption.
+    ///
     /// If not provided, $HOME/.ssh/id_rsa and $HOME/.ssh/id_ecsda are checked.
     pub private_key_paths: Option<Vec<PathBuf>>,
 
     #[arg(short, long, env = "CREDIBLE_LOG_LEVEL", default_value = "warn")]
     /// Level to display logs at (off, error, warn, info, debug, trace)
     pub log_level: LevelFilter,
+
+    #[arg(short = 'z', long, env = "CREDIBLE_CREDENTIALS_FILE")]
+    /// Path to a key=value file that will set environment variables for the
+    /// process (useful for providing credentials to secret storage providers).
+    ///
+    /// If not provided and $HOME/.config/credible/credentials exists, it will be
+    /// loaded.
+    pub credentials_file: Option<PathBuf>,
 
     #[command(subcommand)]
     pub action: Actions,
