@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::path::PathBuf;
 
 use serde::Deserialize;
@@ -42,10 +43,9 @@ pub enum StorageConfig {
     S3(S3Config),
 }
 
-#[async_trait::async_trait]
 pub trait IntoSecretStorage {
     type Error: SecretError;
     type Impl: SecretStorage<Error = Self::Error>;
 
-    async fn build(self) -> Self::Impl;
+    fn build(self) -> impl Future<Output = Self::Impl> + Send;
 }

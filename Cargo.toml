@@ -7,7 +7,6 @@ edition = "2021"
 
 [dependencies]
 age = { version = "0.10.0", features = [ "armor", "async", "cli-common", "plugin", "ssh" ] }
-async-trait = "0.1.81"
 aws-config = "1.5.4"
 aws-sdk-s3 = "1.42.0"
 clap = { version = "4.5.11", features = ["derive", "env"] }

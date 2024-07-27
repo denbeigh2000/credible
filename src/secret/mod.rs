@@ -1,6 +1,6 @@
+use std::future::Future;
 use std::path::{Path, PathBuf};
 
-use async_trait::async_trait;
 use serde::Deserialize;
 use tokio::io::AsyncRead;
 
@@ -36,16 +36,15 @@ pub struct Secret {
     pub owner_group: Option<GroupWrapper>,
 }
 
-#[async_trait]
 pub trait SecretStorage {
     type Error: SecretError;
 
-    async fn read(&self, p: &Path) -> Result<BoxedAsyncReader, Self::Error>;
-    async fn write<R: AsyncRead + Send + Unpin>(
+    fn read(&self, p: &Path) -> impl Future<Output = Result<BoxedAsyncReader, Self::Error>> + Send;
+    fn write<R: AsyncRead + Send + Unpin>(
         &self,
         p: &Path,
         new_encrypted_content: R,
-    ) -> Result<(), Self::Error>;
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }
 
 pub trait SecretError: std::error::Error {}

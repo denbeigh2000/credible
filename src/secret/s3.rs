@@ -1,6 +1,5 @@
 use std::path::Path;
 
-use async_trait::async_trait;
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::config::Region;
 use aws_sdk_s3::error::SdkError;
@@ -24,7 +23,6 @@ pub struct S3Config {
     region: String,
 }
 
-#[async_trait]
 impl IntoSecretStorage for S3Config {
     type Error = S3SecretStorageError;
     type Impl = S3SecretStorage;
@@ -67,7 +65,6 @@ impl S3SecretStorage {
     }
 }
 
-#[async_trait]
 impl SecretStorage for S3SecretStorage {
     // TODO: We need to have better formatting/more specific error types for
     // what goes wrong, because the Display impl on the s3 crate's error types
