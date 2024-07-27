@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use age::cli_common::read_identities;
+use age::cli_common::{read_identities, StdinGuard};
 use age::{Decryptor, Encryptor, Identity, Recipient};
 use tokio::io::{AsyncRead, AsyncWriteExt};
 use tokio_util::compat::{
@@ -57,7 +57,8 @@ pub fn get_identities<P: AsRef<Path>>(
     paths: &[P],
 ) -> Result<Vec<Box<dyn Identity>>, DecryptionError> {
     let path_strings = paths.iter().map(path_to_string).collect::<Vec<_>>();
-    read_identities(path_strings, None).map_err(DecryptionError::ReadingSecretKey)
+    let mut guard = StdinGuard::new(false);
+    read_identities(path_strings, None, &mut guard).map_err(DecryptionError::ReadingSecretKey)
 }
 
 pub async fn decrypt_bytes<R>(

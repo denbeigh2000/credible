@@ -6,30 +6,30 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-age = { version = "0.9.2", features = [ "armor", "async", "cli-common", "ssh" ] }
-async-trait = "0.1.72"
-aws-config = "0.55.3"
-aws-sdk-s3 = "0.28.0"
-clap = { version = "4.3.12", features = ["derive", "env"] }
-futures = "0.3.28"
-lazy_static = "1.4.0"
-log = "0.4.20"
-nix = { version = "0.26.2", features = ["user", "fs", "mount", "time"] }
-serde = { version = "1.0.171", features = ["derive"] }
-serde_with = "3.0.0"
-serde_yaml = "0.9.25"
+age = { version = "0.10.0", features = [ "armor", "async", "cli-common", "plugin", "ssh" ] }
+async-trait = "0.1.81"
+aws-config = "1.5.4"
+aws-sdk-s3 = "1.42.0"
+clap = { version = "4.5.11", features = ["derive", "env"] }
+futures = "0.3.30"
+lazy_static = "1.5.0"
+log = "0.4.22"
+nix = { version = "0.29.0", features = ["user", "fs", "mount", "time"] }
+serde = { version = "1.0.204", features = ["derive"] }
+serde_with = "3.9.0"
+serde_yml = "0.0.11"
 signal-hook = "0.3.17"
 signal-hook-tokio = { version = "0.3.1", features = ["futures-v0_3"] }
-simplelog = "0.12.1"
-tempfile = "3.7.0"
-thiserror = "1.0.43"
-tokio = { version = "1.29.1", features = ["full"] }
+simplelog = "0.12.2"
+tempfile = "3.10.1"
+thiserror = "1.0.63"
+tokio = { version = "1.39.1", features = ["full"] }
 tokio-pipe = "0.2.12"
-tokio-stream = { version = "0.1.14", features = ["full"] }
-tokio-util = { version = "0.7.8", features = ["compat"] }
+tokio-stream = { version = "0.1.15", features = ["full"] }
+tokio-util = { version = "0.7.11", features = ["compat"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-block-utils = "0.11.0"
+block-utils = "0.11.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-plist = "1.5.0"
+plist = "1.7.0"

@@ -12,7 +12,7 @@ pub enum StateBuilderError {
     #[error("error opening config file at {0}: {1}")]
     ReadingConfigFile(PathBuf, std::io::Error),
     #[error("invalid config file: {0}")]
-    ParsingConfigFile(#[from] serde_yaml::Error),
+    ParsingConfigFile(#[from] serde_yml::Error),
 
     #[error("duplicate secret path specified: {0}")]
     DuplicatePath(PathBuf),
@@ -116,7 +116,7 @@ impl<E, J> StateBuilder<E, J> {
     //     let data = fs::read(p)
     //         .await
     //         .map_err(|e| StateBuilderError::ReadingConfigFile(p.to_path_buf(), e))?;
-    //     let config: SecretManagerConfig = serde_yaml::from_slice(&data)?;
+    //     let config: SecretManagerConfig = serde_yml::from_slice(&data)?;
 
     //     let (files, envs): (Vec<_>, Vec<_>) =
     //         config

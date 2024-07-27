@@ -12,7 +12,7 @@ pub enum ExposureLoadingError {
     #[error("error reading mount config file: {0}")]
     ReadingMountConfigFiles(std::io::Error),
     #[error("error decoding mount config file: {0}")]
-    DecodingMountConfigFiles(serde_yaml::Error),
+    DecodingMountConfigFiles(serde_yml::Error),
 }
 
 pub struct State<S, E>

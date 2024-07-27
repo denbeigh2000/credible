@@ -6,7 +6,7 @@ pub enum ProcessRunningError {
     #[error("reading mount config files: {0}")]
     ReadingMountConfigFiles(std::io::Error),
     #[error("decoding mount config files: {0}")]
-    DecodingMountConfigFiles(serde_yaml::Error),
+    DecodingMountConfigFiles(serde_yml::Error),
     #[error("error decrypting secrets: {0}")]
     SecretDecryptionFailure(#[from] DecryptionError),
     #[error("command string is empty")]

@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use async_trait::async_trait;
+use aws_config::BehaviorVersion;
 use aws_sdk_s3::config::Region;
 use aws_sdk_s3::error::SdkError;
 use aws_sdk_s3::operation::get_object::GetObjectError;
@@ -30,7 +31,10 @@ impl IntoSecretStorage for S3Config {
 
     async fn build(self) -> Self::Impl {
         let region = Region::new(self.region);
-        let config = aws_config::from_env().region(region).load().await;
+        let config = aws_config::defaults(BehaviorVersion::latest())
+            .region(region)
+            .load()
+            .await;
         let client = Client::new(&config);
 
         S3SecretStorage::new(client, self.bucket)

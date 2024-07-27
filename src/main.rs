@@ -34,7 +34,7 @@ enum MainError {
     #[error("couldn't read config file at {0}: {1}")]
     ReadingConfigFile(PathBuf, std::io::Error),
     #[error("invalid config file: {0}")]
-    ParsingConfigFile(#[from] serde_yaml::Error),
+    ParsingConfigFile(#[from] serde_yml::Error),
     #[error("bad command line arguments: {0}")]
     SettingUpState(#[from] StateBuilderError),
     #[error("couldn't configure logger: {0}")]
@@ -117,7 +117,7 @@ async fn real_main() -> Result<ExitStatus, MainError> {
         let data = fs::read(&file)
             .await
             .map_err(|e| MainError::ReadingConfigFile(file.to_path_buf(), e))?;
-        let config: SecretManagerConfig = serde_yaml::from_slice(&data)?;
+        let config: SecretManagerConfig = serde_yml::from_slice(&data)?;
 
         if let Some(c) = config.exposures {
             let (files, envs) = partition_specs(c);
