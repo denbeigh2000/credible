@@ -20,7 +20,7 @@
     in
     {
       nixosModules.default = nixLibs.nixosModule;
-      lib.wrapTool = nixLibs.mkTool;
+      lib = { inherit (nixLibs) mkWrapper; };
       overlays.default = overlay;
     } // flake-utils.lib.eachDefaultSystem (system:
       let
