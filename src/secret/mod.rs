@@ -1,6 +1,8 @@
 use std::future::Future;
 use std::path::{Path, PathBuf};
 
+use bytes::Bytes;
+use futures::Stream;
 use serde::Deserialize;
 use tokio::io::AsyncRead;
 
@@ -40,6 +42,15 @@ pub trait SecretStorage {
     type Error: SecretError;
 
     fn read(&self, p: &Path) -> impl Future<Output = Result<BoxedAsyncReader, Self::Error>> + Send;
+    fn read_stream(
+        &self,
+        p: &Path,
+    ) -> impl Future<
+        Output = Result<
+            impl Stream<Item = Result<Bytes, Self::Error>> + Send + Unpin + 'static,
+            Self::Error,
+        >,
+    > + Send;
     fn write<R: AsyncRead + Send + Unpin>(
         &self,
         p: &Path,

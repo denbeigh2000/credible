@@ -1,5 +1,6 @@
 use age::Identity;
-use tokio::io::AsyncReadExt;
+use futures::{AsyncReadExt, StreamExt, TryStreamExt};
+// use tokio::io::AsyncBufReadExt;
 use tokio::process::Command;
 
 use super::EnvExposeArgs;
@@ -19,15 +20,17 @@ where
     // Expose environment variables to the process
     let mut buf = String::new();
     for (secret, exposure_set) in exposures {
-        let reader = storage
-            .read(&secret.path)
+        let encrypted_reader = storage
+            .read_stream(&secret.path)
             .await
             .map_err(|e| EnvExposureError::FetchingSecret(Box::new(e)))?;
-        let mut reader = decrypt_bytes(reader, identities).await?;
-        reader
-            .read_to_string(&mut buf)
-            .await
-            .map_err(|e| EnvExposureError::FetchingSecret(Box::new(e)))?;
+        let mut reader = decrypt_bytes(encrypted_reader, identities)
+            .await?
+            .map(|r| {
+                r.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{}", e)))
+            })
+            .into_async_read();
+        reader.read_to_string(&mut buf).await;
         for env_spec in exposure_set.iter() {
             log::debug!("exposing {} as {}", secret.name, &env_spec.name);
             cmd.env(&env_spec.name, &buf);

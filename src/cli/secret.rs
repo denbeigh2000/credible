@@ -1,9 +1,12 @@
 use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
+use std::pin::Pin;
 use std::process::ExitStatus;
 
+use futures::StreamExt;
 use tempfile::NamedTempFile;
 use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
 use super::State;
@@ -63,9 +66,10 @@ where
     // NOTE: It would be nice if this supported creating new files, too
     let reader = state
         .storage
-        .read(&secret.path)
+        .read_stream(&secret.path)
         .await
         .map_err(|e| EditSecretError::WritingToStore(Box::new(e)))?;
+    // let reader = std::pin::pin!(reader);
     let temp_file = NamedTempFile::new().map_err(EditSecretError::CreatingTempFile)?;
     let temp_file_path = temp_file.path();
     // Scope ensures temp file is closed after we write decrypted data
@@ -73,10 +77,16 @@ where
         let mut temp_file_handle = File::create(temp_file_path)
             .await
             .map_err(EditSecretError::OpeningTempFile)?;
+        let reader = Box::pin(reader);
         let mut reader = decrypt_bytes(reader, &identities).await?;
-        tokio::io::copy(&mut reader, &mut temp_file_handle)
-            .await
-            .map_err(EditSecretError::OpeningTempFile)?;
+        while let Some(r) = reader.next().await {
+            // TODO: improve these errors
+            let res = r.map_err(EditSecretError::OpeningTempFile)?;
+            temp_file_handle
+                .write_all(&res)
+                .await
+                .map_err(EditSecretError::OpeningTempFile)?;
+        }
     }
     log::debug!("secret written to {}", temp_file_path.to_string_lossy());
 

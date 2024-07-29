@@ -47,5 +47,5 @@ pub trait IntoSecretStorage {
     type Error: SecretError;
     type Impl: SecretStorage<Error = Self::Error>;
 
-    fn build(self) -> impl Future<Output = Self::Impl> + Send;
+    fn build(self) -> impl Future<Output = Result<Self::Impl, Self::Error>> + Send;
 }

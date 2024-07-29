@@ -88,11 +88,12 @@ impl<E, J> StateBuilder<E, J> {
     ) -> Result<StateBuilder<S::Error, S::Impl>, StateBuilderError>
     where
         S: IntoSecretStorage<Error = En, Impl = Jn> + 'static,
-        <S as IntoSecretStorage>::Error: 'static,
+        <S as IntoSecretStorage>::Error: 'static + std::fmt::Debug,
         <S as IntoSecretStorage>::Impl: 'static,
         // ProcessRunningError: From<<S as IntoSecretStorage>::Error>,
     {
-        let storage = into_storage.build().await;
+        // TODO: this needs to be added to StateBuilderError
+        let storage = into_storage.build().await.unwrap();
 
         Ok(StateBuilder {
             exposures: self.exposures,

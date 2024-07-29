@@ -1,13 +1,16 @@
 use std::path::Path;
+use std::task::Poll;
 
 use age::cli_common::{read_identities, StdinGuard};
 use age::{Decryptor, Encryptor, Identity, Recipient};
+use futures::{Stream, StreamExt};
 use tokio::io::{AsyncRead, AsyncWriteExt};
 use tokio_util::compat::{
     FuturesAsyncReadCompatExt,
     FuturesAsyncWriteCompatExt,
     TokioAsyncReadCompatExt,
 };
+use tokio_util::io::{ReaderStream, StreamReader};
 
 use crate::util::BoxedAsyncReader;
 
@@ -61,14 +64,63 @@ pub fn get_identities<P: AsRef<Path>>(
     read_identities(path_strings, None, &mut guard).map_err(DecryptionError::ReadingSecretKey)
 }
 
-pub async fn decrypt_bytes<R>(
+// pub struct AsyncReadStream<S, E>(pub S)
+// where
+//     S: Stream<Item = Result<bytes::Bytes, E>> + 'static,
+//     E: std::error::Error;
+//
+// impl<S, E> AsyncRead for AsyncReadStream<S, E>
+// where
+//     S: Stream<Item = Result<bytes::Bytes, E>> + Unpin + 'static,
+//     E: std::error::Error,
+// {
+//     fn poll_read(
+//         self: std::pin::Pin<&mut Self>,
+//         cx: &mut std::task::Context<'_>,
+//         buf: &mut tokio::io::ReadBuf<'_>,
+//     ) -> Poll<std::io::Result<()>> {
+//         todo!()
+//     }
+//     // fn poll_read(
+//     //     mut self: std::pin::Pin<&mut Self>,
+//     //     cx: &mut std::task::Context<'_>,
+//     //     buf: &mut [u8],
+//     // ) -> std::task::Poll<std::io::Result<usize>> {
+//     //     self.as_ref().0.poll_next_unpin(cx).map(|opt| {
+//     //         opt.map(|res| match res {
+//     //             Ok(bytes) => {
+//     //                 // bytes.
+//     //             }
+//     //             Err(e) => {}
+//     //         })
+//     //     })
+//     //     // Poll::Pending => Poll::Pending,
+//     //     // Poll::Ready(r) => Poll::Ready(match r {
+//     //     //     Some(v) => match v {
+//     //     //
+//     //     //         std::io::Error::new(
+//     //     //         Ok(
+//     //     //     },
+//     //     //     None => None,
+//     //     // }),
+//     //     // }
+//     // }
+// }
+
+pub async fn decrypt_bytes<R, E>(
     encrypted_bytes: R,
     identities: &[Box<dyn Identity>],
-) -> Result<BoxedAsyncReader, DecryptionError>
+    // ) -> Result<BoxedAsyncReader, DecryptionError>
+) -> Result<impl Stream<Item = Result<bytes::Bytes, std::io::Error>>, DecryptionError>
 where
-    R: AsyncRead + Unpin + Sized + Send + 'static,
+    R: Stream<Item = Result<bytes::Bytes, E>> + Unpin + Sized + Send + 'static,
+    E: std::error::Error + 'static,
 {
-    let decryptor = match Decryptor::new_async(encrypted_bytes.compat())
+    let reader = encrypted_bytes.map(|res| {
+        res.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{}", e)))
+    });
+    let reader = StreamReader::new(reader);
+    let decryptor = match Decryptor::new_async(reader.compat())
         .await
         .map_err(DecryptionError::ReadingArmoredSecret)?
     {
@@ -82,7 +134,7 @@ where
         .map_err(DecryptionError::DecryptingSecret)?
         .compat();
 
-    Ok(BoxedAsyncReader::from_async_read(reader))
+    Ok(ReaderStream::new(reader))
 }
 
 pub async fn encrypt_bytes<R>(

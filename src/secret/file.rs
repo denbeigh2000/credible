@@ -1,6 +1,7 @@
 use age::Identity;
+use futures::{AsyncReadExt, StreamExt, TryStreamExt};
 use tokio::fs::OpenOptions;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 
 use crate::age::{decrypt_bytes, DecryptionError};
 use crate::secret::exposures::*;
@@ -25,11 +26,14 @@ where
     log::debug!("mounting {} exposures", exposures.len());
     for (secret, exposure_set) in exposures {
         let reader = storage
-            .read(&secret.path)
+            .read_stream(&secret.path)
             .await
             .map_err(|e| FileExposureError::FetchingSecret(Box::new(e)))?;
 
-        let mut reader = decrypt_bytes(reader, identities).await?;
+        let mut reader = decrypt_bytes(reader, identities)
+            .await?
+            .map(|r| r.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e}"))))
+            .into_async_read();
         reader
             .read_to_end(&mut buf)
             .await
