@@ -1,3 +1,5 @@
+use std::io;
+
 use age::Identity;
 use futures::{AsyncReadExt, StreamExt, TryStreamExt};
 use tokio::fs::OpenOptions;
@@ -32,7 +34,7 @@ where
 
         let mut reader = decrypt_bytes(reader, identities)
             .await?
-            .map(|r| r.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e}"))))
+            .map(|r| r.map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{e}"))))
             .into_async_read();
         reader
             .read_to_end(&mut buf)
@@ -120,15 +122,15 @@ pub enum FileExposureError {
     #[error("error decrypting secrets: {0}")]
     DecryptingSecret(#[from] DecryptionError),
     #[error("error creating temp file: {0}")]
-    CreatingTempFile(std::io::Error),
+    CreatingTempFile(io::Error),
     #[error("error writing secret to file: {0}")]
-    WritingToFile(std::io::Error),
+    WritingToFile(io::Error),
     #[error("error creating symlink to decrypted secret: {0}")]
-    CreatingSymlink(std::io::Error),
+    CreatingSymlink(io::Error),
     #[error("error setting permissions on created file: {0}")]
     SettingPermissions(nix::errno::Errno),
 }
 
 #[derive(thiserror::Error, Debug)]
 #[error("not able to clean up symlink at {0}: {1}")]
-pub struct FileCleanupError(PathBuf, std::io::Error);
+pub struct FileCleanupError(PathBuf, io::Error);

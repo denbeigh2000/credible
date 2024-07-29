@@ -4,9 +4,7 @@ use std::path::{Path, PathBuf};
 use bytes::Bytes;
 use futures::Stream;
 use serde::Deserialize;
-use tokio::io::AsyncRead;
 
-use crate::util::BoxedAsyncReader;
 use crate::wrappers::{GroupWrapper, UserWrapper};
 
 mod process;
@@ -14,6 +12,9 @@ pub use process::*;
 
 mod file;
 pub use file::*;
+
+mod gcp;
+pub use gcp::*;
 
 mod s3;
 pub use s3::*;
@@ -41,7 +42,6 @@ pub struct Secret {
 pub trait SecretStorage {
     type Error: SecretError;
 
-    fn read(&self, p: &Path) -> impl Future<Output = Result<BoxedAsyncReader, Self::Error>> + Send;
     fn read_stream(
         &self,
         p: &Path,
@@ -51,7 +51,10 @@ pub trait SecretStorage {
             Self::Error,
         >,
     > + Send;
-    fn write<R: AsyncRead + Send + Unpin>(
+    fn write<
+        // NOTE: gcs lib requires this to be static
+        R: Stream<Item = Result<bytes::Bytes, std::io::Error>> + Send + Sync + Unpin + 'static,
+    >(
         &self,
         p: &Path,
         new_encrypted_content: R,

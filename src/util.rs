@@ -1,6 +1,9 @@
 use std::collections::HashMap;
+use std::marker::PhantomData;
 use std::pin::Pin;
+use std::task::Poll;
 
+use futures::Stream;
 use tokio::io::AsyncRead;
 
 use crate::secret::{EnvExposeArgs, FileExposeArgs};
@@ -63,4 +66,28 @@ pub fn partition_specs<I: IntoIterator<Item = ExposureSpec>>(
 
             (fs, es)
         })
+}
+
+pub struct OneshotStream<E: Unpin>(Option<bytes::Bytes>, PhantomData<E>);
+
+impl<E: Unpin> OneshotStream<E> {
+    pub fn new(b: bytes::Bytes) -> Self {
+        Self(Some(b), PhantomData::default())
+    }
+
+    pub fn new_from_slice(b: &[u8]) -> Self {
+        Self::new(bytes::Bytes::copy_from_slice(b))
+    }
+}
+
+impl<E: Unpin> Stream for OneshotStream<E> {
+    type Item = Result<bytes::Bytes, E>;
+
+    fn poll_next(
+        self: Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        let o = Ok(self.get_mut().0.take());
+        Poll::Ready(o.transpose())
+    }
 }

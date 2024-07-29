@@ -6,8 +6,8 @@ use serde::Deserialize;
 pub mod system;
 pub use system::{MountSecretsError, UnmountSecretsError};
 mod secret;
-use secret::S3Config;
 pub use secret::{ExposureSpec, Exposures, Secret, SecretError, SecretStorage};
+use secret::{GoogleCloudConfig, S3Config};
 
 mod process_utils;
 
@@ -41,6 +41,7 @@ pub struct SecretManagerConfig {
 #[non_exhaustive]
 pub enum StorageConfig {
     S3(S3Config),
+    GoogleCloud(GoogleCloudConfig),
 }
 
 pub trait IntoSecretStorage {

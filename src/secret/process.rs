@@ -30,7 +30,10 @@ where
                 r.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{}", e)))
             })
             .into_async_read();
-        reader.read_to_string(&mut buf).await;
+        reader
+            .read_to_string(&mut buf)
+            .await
+            .map_err(|e| EnvExposureError::FetchingSecret(Box::new(e)))?;
         for env_spec in exposure_set.iter() {
             log::debug!("exposing {} as {}", secret.name, &env_spec.name);
             cmd.env(&env_spec.name, &buf);

@@ -1,6 +1,5 @@
 use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
-use std::pin::Pin;
 use std::process::ExitStatus;
 
 use futures::StreamExt;
@@ -11,6 +10,7 @@ use tokio::process::Command;
 
 use super::State;
 use crate::age::{decrypt_bytes, encrypt_bytes, get_identities, DecryptionError, EncryptionError};
+use crate::util::OneshotStream;
 use crate::{SecretError, SecretStorage};
 
 pub async fn create<S, E>(
@@ -41,7 +41,7 @@ where
         .map_err(CreateUpdateSecretError::EncryptingSecret)?;
     state
         .storage
-        .write(&secret.path, encrypted_data.as_slice())
+        .write(&secret.path, OneshotStream::new_from_slice(&encrypted_data))
         .await
         .map_err(|e| CreateUpdateSecretError::WritingToStore(Box::new(e)))?;
 
@@ -112,7 +112,7 @@ where
     let encrypted_data = encrypt_bytes(temp_file_handle, &secret.encryption_keys).await?;
     state
         .storage
-        .write(&secret.path, encrypted_data.as_slice())
+        .write(&secret.path, OneshotStream::new_from_slice(&encrypted_data))
         .await
         .map_err(|e| EditSecretError::WritingToStore(Box::new(e)))?;
 

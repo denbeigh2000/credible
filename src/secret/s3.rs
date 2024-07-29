@@ -6,17 +6,15 @@ use ::aws_smithy_types::byte_stream::ByteStream;
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::config::Region;
 use aws_sdk_s3::error::SdkError;
-use aws_sdk_s3::operation::get_object::{GetObjectError, GetObjectOutput};
+use aws_sdk_s3::operation::get_object::GetObjectError;
 use aws_sdk_s3::operation::put_object::PutObjectError;
 use aws_sdk_s3::primitives::ByteStreamError;
 use aws_sdk_s3::Client;
-use futures::prelude::Stream;
+use futures::{AsyncReadExt, Stream, TryStreamExt};
 use serde::Deserialize;
 use thiserror::Error;
-use tokio::io::{AsyncRead, AsyncReadExt};
 
 use crate::secret::{SecretError, SecretStorage};
-use crate::util::BoxedAsyncReader;
 use crate::IntoSecretStorage;
 
 #[derive(Deserialize, Debug)]
@@ -99,21 +97,6 @@ impl SecretStorage for S3SecretStorage {
     // does not produce much user-actionable information
     type Error = S3SecretStorageError;
 
-    async fn read(&self, key: &Path) -> Result<BoxedAsyncReader, Self::Error> {
-        let path_str = key.to_str().expect("path not representable as str");
-        let object = self
-            .client
-            .get_object()
-            .bucket(&self.bucket)
-            .key(path_str)
-            .send()
-            .await?;
-
-        Ok(BoxedAsyncReader::from_async_read(
-            object.body.into_async_read(),
-        ))
-    }
-
     async fn read_stream(
         &self,
         p: &Path,
@@ -133,18 +116,18 @@ impl SecretStorage for S3SecretStorage {
         let s: ByteStream = object.body;
 
         Ok(S3GetObjectWrapper(Box::pin(s)))
-
-        // unimplemented!()
     }
 
-    async fn write<R: AsyncRead + Send + Unpin>(
-        &self,
-        key: &Path,
-        mut new_encrypted_content: R,
-    ) -> Result<(), Self::Error> {
+    async fn write<R>(&self, key: &Path, new_encrypted_content: R) -> Result<(), Self::Error>
+    where
+        R: Stream<Item = Result<bytes::Bytes, std::io::Error>> + Send + Sync + Unpin + 'static,
+    {
         let path_str = key.to_str().expect("path not representable as str");
         let mut buf = Vec::new();
-        new_encrypted_content.read_to_end(&mut buf).await?;
+        new_encrypted_content
+            .into_async_read()
+            .read_to_end(&mut buf)
+            .await?;
         let body = ByteStream::from(buf);
         self.client
             .put_object()
